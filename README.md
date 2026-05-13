@@ -1,1 +1,1 @@
-the crazy 2024 to set the point to point connection
+## 直接运行dist文件夹下的exe文件即可运行
