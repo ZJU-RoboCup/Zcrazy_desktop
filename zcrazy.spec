@@ -12,6 +12,7 @@ a = Analysis(
         ('ZText.qml', '.'),
         ('qtquickcontrols2.conf', '.'),
         ('zcrazy.txt', '.'),
+        ('color.jpg', '.'),
     ],
     hiddenimports=[],
     hookspath=[],

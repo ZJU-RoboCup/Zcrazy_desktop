@@ -39,37 +39,42 @@ Rectangle{
             // property int test_drib_speed : 150;
             property int test_drib_level : 30;
             property int test_drib_vr : 0;
-            property int test_drib_vr_step : 200;
+            property int test_drib_vr_step : 2;
 
-            property int velXStep : 20;//VxStep
-            property int velYStep : 20;//VyStep
-            property int velRStep : 20;//VrStep
+            property int velXStep : 200;//VxStep
+            property int velYStep : 200;//VyStep
+            property int velRStep : 1;//VrStep
             property int angleStep : 10;
             property bool mode : false;//KickMode
             property int dribbleLevel : 10;//DribLevel
-            property int rushSpeed : 20;//RushSpeed
+            property int dribbleVelocity : -50;//DribVel [turns/s]
+            property int dribbleTorqueMilli : 100;//DribTorque [mNm]
+            property int rushSpeed : 200;//RushSpeed
 
             property int power : 20;//KickPower
 
-            property int m_VELR : 8000;//MaxVelR [100rad/s]
-            property int m_VEL : 800//MaxVel
-            property int velocityRMax : m_VELR;//MaxVelR [100rad/s]
+            property int m_VELR : 80;//MaxVelR [rad/s]
+            property int m_VEL : 8000//MaxVel (mm/s)
+            property int velocityRMax : m_VELR;//MaxVelR [rad/s]
             property int velocityMax : m_VEL;//最大速度
             property int m_angle :180;
             property int angleMax : m_angle;//最大角度
 
             property int dribbleMaxLevel : 30;//吸球最大等级
+            property int dribbleVelocityMax : 200;
+            property int dribbleTorqueMilliMax : 1000;
             property double dribble_test_L : 98.72/1000.0;
             property double dribble_test_cos : 0.9725;
             property double dribble_test_sin : 0.2330;
-            property int kickPowerMax: 200;//最大踢球力量[50us]
-            property double r_VEL_RATIO : 0.01;
-            property double r_VELR_RATIO : 0.01;
+            property int kickPowerMax: 300;//最大踢球力量[50us]
+            // UI uses mm/s and rad/s; convert to m/s and rad/s for backend.
+            property double r_VEL_RATIO : 0.001;
+            property double r_VELR_RATIO : 1.0;
             property double r_DRIBBLE_RATIO : 0.1;
             property double r_KICK_RATIO : 50;
             property int itemWidth : (parent.width-columnSpacing*(columns))/columns;
-            property string textV : qsTr("(cm/s)");
-            property string textW : qsTr("(100rad/s)");
+            property string textV : qsTr("(mm/s)");
+            property string textW : qsTr("(rad/s)");
             property string textP : qsTr("(50us)");
 
             property bool use_imu : false;
@@ -156,15 +161,12 @@ Rectangle{
                     }
                     }}
 
-            ZText{ text:qsTr("Spin Vr") }
-            SpinBox{ id: spinVelR; editable:true; from:0; to:crazyShow.m_VELR; value:8000; stepSize:200; width:parent.itemWidth }
-            ZText{ text:qsTr("Half(ms)") }
-            SpinBox{ id: spinHalfMs; editable:true; from:100; to:4000; value:1000; stepSize:50; width:parent.itemWidth }
-            Button{ text:qsTr("SpinHalf") ;width:parent.itemWidth
-                onClicked: { radioRectangle.cmdSender.spinHalfReturnWith(spinVelR.value, spinHalfMs.value) }
-            }
             ZText{ text:" " }
-            
+            ZText{ text:" " }
+            ZText{ text:" " }
+            ZText{ text:" " }
+            ZText{ text:" " }
+            ZText{ text:" " }
             ZText{ text:qsTr("Shoot [E]") }
             Button{ text:(parent.shoot? qsTr("true") : qsTr("false")) ;width:parent.itemWidth
                 onClicked: { parent.shoot = !parent.shoot; }
@@ -186,8 +188,9 @@ Rectangle{
             //DribLevel:(0, dribbleMaxLevel)
             SpinBox{ editable:true; from:0; to:crazyShow.dribbleMaxLevel; value:parent.dribbleLevel;width:parent.itemWidth
                 onValueModified:{parent.dribbleLevel = value;}}
-            ZText{ text:" " }
-            ZText{ text:" " }
+            ZText{ text:qsTr("DribVel (turn/s)")  }
+            SpinBox{ editable:true; from:-crazyShow.dribbleVelocityMax; to:crazyShow.dribbleVelocityMax; value:parent.dribbleVelocity;width:parent.itemWidth
+                onValueModified:{parent.dribbleVelocity = value;}}
             ZText{ text:qsTr("Rush [G]")  }
             Button{ text:(parent.rush ? qsTr("true") : qsTr("false")) ;width:parent.itemWidth;
                 onClicked: {
@@ -199,12 +202,9 @@ Rectangle{
             //RushSpeed:(0, m_VEL)
             SpinBox{ editable:true; from:0; to:crazyShow.m_VEL; value:parent.rushSpeed;width:parent.itemWidth
                 onValueModified:{parent.rushSpeed = value;}}
-            Rectangle{
-                width:parent.itemWidth; height:20; color:parent.shoot ? "red" : "lightgrey";
-            }
-
-
-            ZText{ text:" " }
+            ZText{ text:qsTr("DribTorque (mNm)")  }
+            SpinBox{ editable:true; from:-crazyShow.dribbleTorqueMilliMax; to:crazyShow.dribbleTorqueMilliMax; value:parent.dribbleTorqueMilli;width:parent.itemWidth
+                onValueModified:{parent.dribbleTorqueMilli = value;}}
             ZText{ text:qsTr("test_dribble [B]")  }
             Button{ text:(parent.test_dribble ? qsTr("true") : qsTr("false")) ;width:parent.itemWidth;
                 onClicked: {
@@ -287,7 +287,28 @@ Rectangle{
                 }
             }
 
+            Button{ text:qsTr("all -> blue") ;width:parent.itemWidth
+                onClicked: {
+                    // change all known robots to blue (team 1)
+                    radioRectangle.cmdSender.changeTeamAll(1);
+                }
+            }
+
+            Button{ text:qsTr("all -> yellow") ;width:parent.itemWidth
+                onClicked: {
+                    // change all known robots to yellow (team 2)
+                    radioRectangle.cmdSender.changeTeamAll(2);
+                }
+            }
+
             //角度pid
+            ZText{ text:qsTr("Trajectory") }
+            Button{ text:qsTr("Open") ;width:parent.itemWidth
+                onClicked: {
+                    trajectoryPopup.open();
+                }
+            }
+
             //ZText{ text:qsTr("testSpeed "+parent.textV)  }
 
             //键盘响应实现
@@ -306,8 +327,8 @@ Rectangle{
                 event.accepted = true;
             }
             function updateStop(){
-                // also stop the new continuous spin oscillation
-                radioRectangle.cmdSender.stopSpin();
+                // emergency stop: bypass trapezoidal ramp and send zero immediately
+                radioRectangle.cmdSender.emergencyStop();
                 crazyShow.velX = 0;
                 crazyShow.velY = 0;
                 crazyShow.velR = 0;
@@ -333,7 +354,8 @@ Rectangle{
                 if(crazyShow.test_dribble){
                    
                     // crazyShow.test_drib_speed = crazyShow.test_drib_vr/0.085
-                crazyShow.velY = -crazyShow.velR*crazyShow.dribble_test_L*crazyShow.dribble_test_cos;
+                // velR in rad/s, L in meters -> m/s; convert to mm/s for UI
+                crazyShow.velY = -crazyShow.velR*crazyShow.dribble_test_L*crazyShow.dribble_test_cos*1000;
                 // if(crazyShow.velR > 0)
                 // {
                 //     crazyShow.velX = -crazyShow.velR*crazyShow.dribble_test_L*crazyShow.dribble_test_sin;
@@ -371,6 +393,10 @@ Rectangle{
                     break;}
                 case 's':{crazyShow.velX = crazyShow.limitVel(crazyShow.velX-crazyShow.velXStep,-crazyShow.m_VEL,crazyShow.m_VEL);
                     break;}
+                case 'S':{crazyShow.velX = crazyShow.limitVel(crazyShow.velX-crazyShow.velXStep,-crazyShow.m_VEL,crazyShow.m_VEL);
+                    break;}
+                case 'SPACE':{crazyShow.updateStop();
+                    break;}
                 case 'q':{crazyShow.dribble = !crazyShow.dribble;
                     break;}
                 case 'e':{crazyShow.shoot = !crazyShow.shoot;
@@ -378,14 +404,12 @@ Rectangle{
                 case 'L':{
                     if(crazyShow.use_imu)
                     {
-                        if (crazyShow.angle+crazyShow.angleStep > crazyShow.m_angle)
+                        var newAngle = crazyShow.angle + crazyShow.angleStep;
+                        if (newAngle > crazyShow.m_angle)
                         {
-                            crazyShow.angle = crazyShow.angle - 2*crazyShow.m_angle;
+                            newAngle = newAngle - 2 * crazyShow.m_angle;
                         }
-                        else
-                        {
-                            crazyShow.angle = crazyShow.angle+crazyShow.angleStep
-                        }
+                        crazyShow.angle = newAngle;
                         // crazyShow.angle = crazyShow.limitVel(crazyShow.angle+crazyShow.angleStep,-crazyShow.m_angle,crazyShow.m_angle);
                     }
                     else
@@ -397,14 +421,12 @@ Rectangle{
                 case 'R':{
                     if(crazyShow.use_imu)
                     {
-                        if (crazyShow.angle-crazyShow.angleStep < -crazyShow.m_angle)
+                        var newAngle = crazyShow.angle - crazyShow.angleStep;
+                        if (newAngle < -crazyShow.m_angle)
                         {
-                            crazyShow.angle = crazyShow.angle + 2*  crazyShow.m_angle;
+                            newAngle = newAngle + 2 * crazyShow.m_angle;
                         }
-                        else
-                        {
-                            crazyShow.angle = crazyShow.angle-crazyShow.angleStep
-                        }                        
+                        crazyShow.angle = newAngle;
                         // crazyShow.angle = crazyShow.limitVel(crazyShow.angle+crazyShow.angleStep,-crazyShow.m_angle,crazyShow.m_angle);
                     }
                     else
@@ -456,6 +478,8 @@ Rectangle{
                     crazyShow.power*crazyShow.r_KICK_RATIO,
                     crazyShow.use_imu,
                     crazyShow.angle,
+                    crazyShow.dribbleVelocity,
+                    crazyShow.dribbleTorqueMilli / 1000.0,
                     crazyShow.control_all,
                     crazyShow.control_all_which_team
                 );
@@ -536,7 +560,7 @@ Rectangle{
             }
             Shortcut{
                 sequence:"Space"
-                onActivated:crazyShow.handleKeyboardEvent('S');
+                onActivated:crazyShow.handleKeyboardEvent('SPACE');
             }
             Shortcut{
                 sequence:"B"
@@ -566,13 +590,321 @@ Rectangle{
                 sequence:"K"
                 onActivated:crazyShow.handleKeyboardEvent('k');
             }
-            Shortcut{
-                sequence:"H";
-                onActivated: radioRectangle.cmdSender.spinHalfReturn();
-            }
+            
         }
     }
     //最下面的Start按钮
+    Popup {
+        id: trajectoryPopup
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(20, (radioRectangle.width - width) / 2)
+        y: 24
+        width: Math.min(radioRectangle.width - 40, 920)
+        height: Math.min(radioRectangle.height - 70, 650)
+        padding: 0
+
+        property var historyItems: []
+        property var historyNames: []
+        property string statusTextValue: ""
+
+        function shapeIndex(shape) {
+            if (shape === "rectangle") return 1;
+            if (shape === "circle") return 2;
+            if (shape === "custom") return 3;
+            return 0;
+        }
+
+        function refreshHistory() {
+            var raw = radioRectangle.cmdSender.trajectoryHistoryJson();
+            var items = [];
+            try {
+                items = JSON.parse(raw);
+            } catch (e) {
+                items = [];
+            }
+            trajectoryPopup.historyItems = items;
+            var names = [];
+            for (var i = 0; i < items.length; i++) {
+                names.push(items[i].name);
+            }
+            trajectoryPopup.historyNames = names;
+        }
+
+        function parseCustomPoints() {
+            var points = [];
+            var rows = customPoints.text.split(/[;\n]+/);
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i].trim();
+                if (row.length === 0) continue;
+                var parts = row.split(/[,\s]+/);
+                if (parts.length < 2) continue;
+                var x = Number(parts[0]);
+                var y = Number(parts[1]);
+                if (!isNaN(x) && !isNaN(y)) {
+                    points.push({"x": x, "y": y});
+                }
+            }
+            return points;
+        }
+
+        function buildSpec() {
+            var shape = shapeBox.currentText;
+            var spec = {
+                "shape": shape,
+                "length": lengthBox.value,
+                "width": widthBox.value,
+                "speed": speedBox.value,
+                "repeat": repeatBox.value,
+                "clockwise": clockwiseBox.checked,
+                "closePath": closePathBox.checked
+            };
+            if (shape === "custom") {
+                spec.points = parseCustomPoints();
+            }
+            return spec;
+        }
+
+        function applySpec(spec) {
+            if (!spec) return;
+            shapeBox.currentIndex = shapeIndex(spec.shape);
+            lengthBox.value = Math.round(spec.length || 1000);
+            widthBox.value = Math.round(spec.width || lengthBox.value);
+            speedBox.value = Math.round(spec.speed || 500);
+            repeatBox.value = Math.max(1, Math.round(spec.repeat || 1));
+            clockwiseBox.checked = !!spec.clockwise;
+            closePathBox.checked = !!spec.closePath;
+            if (spec.points && spec.points.length > 0) {
+                var rows = [];
+                for (var i = 0; i < spec.points.length; i++) {
+                    rows.push(Math.round(spec.points[i].x) + "," + Math.round(spec.points[i].y));
+                }
+                customPoints.text = rows.join(";");
+            }
+            previewCanvas.requestPaint();
+        }
+
+        function previewPoints() {
+            var shape = shapeBox.currentText;
+            var len = Math.max(1, lengthBox.value);
+            var wid = Math.max(1, widthBox.value);
+            if (shape === "custom") {
+                var pts = parseCustomPoints();
+                if (closePathBox.checked && pts.length > 1) {
+                    pts.push({"x": pts[0].x, "y": pts[0].y});
+                }
+                return pts;
+            }
+            if (shape === "circle") {
+                var radius = len / 2.0;
+                var circle = [];
+                for (var i = 0; i <= 48; i++) {
+                    var a = 2.0 * Math.PI * i / 48.0;
+                    circle.push({"x": radius + Math.cos(a) * radius, "y": radius + Math.sin(a) * radius});
+                }
+                return circle;
+            }
+            if (shape === "rectangle") {
+                return [{"x":0,"y":0}, {"x":len,"y":0}, {"x":len,"y":wid}, {"x":0,"y":wid}, {"x":0,"y":0}];
+            }
+            return [{"x":0,"y":0}, {"x":len,"y":0}, {"x":len,"y":len}, {"x":0,"y":len}, {"x":0,"y":0}];
+        }
+
+        function runTrajectory() {
+            var spec = buildSpec();
+            if (spec.shape === "custom" && (!spec.points || spec.points.length < 2)) {
+                trajectoryPopup.statusTextValue = "Custom needs at least 2 points";
+                return;
+            }
+            if (rememberCheck.checked) {
+                var saveName = historyName.text.trim();
+                if (saveName.length === 0) {
+                    saveName = spec.shape + "-" + Date.now();
+                    historyName.text = saveName;
+                }
+                radioRectangle.cmdSender.saveTrajectoryHistory(saveName, JSON.stringify(spec));
+                refreshHistory();
+            }
+            if (radioRectangle.cmdSender.startTrajectory(JSON.stringify(spec))) {
+                if (!crazyStart.ifStarted) {
+                    crazyStart.handleClickEvent();
+                }
+                trajectoryPopup.statusTextValue = "Running";
+            } else {
+                trajectoryPopup.statusTextValue = "Run failed";
+            }
+        }
+
+        onOpened: {
+            refreshHistory();
+            previewCanvas.requestPaint();
+        }
+
+        background: Rectangle {
+            color: "#f6f6f6"
+            border.color: "#9a9a9a"
+            radius: 6
+        }
+
+        contentItem: Rectangle {
+            color: "transparent"
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 10
+
+                Row {
+                    width: parent.width
+                    spacing: 10
+                    Text { text: qsTr("Trajectory Test"); font.pixelSize: 22; font.bold: true; width: parent.width - 90 }
+                    Button { text: qsTr("Close"); width: 80; onClicked: trajectoryPopup.close() }
+                }
+
+                Row {
+                    spacing: 16
+                    width: parent.width
+
+                    Column {
+                        width: 430
+                        spacing: 8
+
+                        Grid {
+                            columns: 2
+                            columnSpacing: 10
+                            rowSpacing: 8
+                            width: parent.width
+
+                            ZText { text: qsTr("Shape") }
+                            ComboBox {
+                                id: shapeBox
+                                width: 230
+                                model: ["square", "rectangle", "circle", "custom"]
+                                onCurrentIndexChanged: previewCanvas.requestPaint()
+                            }
+
+                            ZText { text: qsTr("Length/Diameter (mm)") }
+                            SpinBox { id: lengthBox; editable: true; from: 1; to: 20000; value: 1000; width: 230; stepSize: 50; onValueModified: previewCanvas.requestPaint() }
+
+                            ZText { text: qsTr("Width (mm)") }
+                            SpinBox { id: widthBox; editable: true; from: 1; to: 20000; value: 1000; width: 230; stepSize: 50; onValueModified: previewCanvas.requestPaint() }
+
+                            ZText { text: qsTr("Speed (mm/s)") }
+                            SpinBox { id: speedBox; editable: true; from: 1; to: 8000; value: 500; width: 230; stepSize: 50 }
+
+                            ZText { text: qsTr("Repeat") }
+                            SpinBox { id: repeatBox; editable: true; from: 1; to: 100; value: 1; width: 230 }
+
+                            CheckBox { id: clockwiseBox; text: qsTr("clockwise"); checked: false; width: 190; onCheckedChanged: previewCanvas.requestPaint() }
+                            CheckBox { id: closePathBox; text: qsTr("close custom"); checked: true; width: 230; onCheckedChanged: previewCanvas.requestPaint() }
+                        }
+
+                        ZText { text: qsTr("Custom points: x,y; x,y; ...") }
+                        TextArea {
+                            id: customPoints
+                            width: parent.width
+                            height: 88
+                            text: "0,0;1000,0;1000,1000;0,1000"
+                            wrapMode: TextEdit.Wrap
+                            selectByMouse: true
+                            onTextChanged: previewCanvas.requestPaint()
+                        }
+
+                        Row {
+                            spacing: 8
+                            ComboBox {
+                                id: historyBox
+                                width: 190
+                                model: trajectoryPopup.historyNames
+                            }
+                            Button {
+                                text: qsTr("Load")
+                                width: 70
+                                enabled: historyBox.currentIndex >= 0 && trajectoryPopup.historyItems.length > 0
+                                onClicked: {
+                                    var item = trajectoryPopup.historyItems[historyBox.currentIndex];
+                                    if (item) {
+                                        historyName.text = item.name;
+                                        trajectoryPopup.applySpec(item.spec);
+                                    }
+                                }
+                            }
+                            CheckBox { id: rememberCheck; text: qsTr("save"); checked: false; width: 70 }
+                            TextField { id: historyName; width: 80; placeholderText: qsTr("name") }
+                        }
+                    }
+
+                    Canvas {
+                        id: previewCanvas
+                        width: Math.max(260, parent.width - 446)
+                        height: 360
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.clearRect(0, 0, width, height);
+                            ctx.fillStyle = "#ffffff";
+                            ctx.fillRect(0, 0, width, height);
+                            ctx.strokeStyle = "#c8c8c8";
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+
+                            var pts = trajectoryPopup.previewPoints();
+                            if (!pts || pts.length < 2) {
+                                return;
+                            }
+                            var minX = pts[0].x, maxX = pts[0].x, minY = pts[0].y, maxY = pts[0].y;
+                            for (var i = 1; i < pts.length; i++) {
+                                minX = Math.min(minX, pts[i].x);
+                                maxX = Math.max(maxX, pts[i].x);
+                                minY = Math.min(minY, pts[i].y);
+                                maxY = Math.max(maxY, pts[i].y);
+                            }
+                            var pad = 24;
+                            var spanX = Math.max(1, maxX - minX);
+                            var spanY = Math.max(1, maxY - minY);
+                            var scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
+
+                            function sx(x) { return pad + (x - minX) * scale; }
+                            function sy(y) { return height - pad - (y - minY) * scale; }
+
+                            ctx.strokeStyle = "#1976d2";
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(sx(pts[0].x), sy(pts[0].y));
+                            for (var j = 1; j < pts.length; j++) {
+                                ctx.lineTo(sx(pts[j].x), sy(pts[j].y));
+                            }
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#2e7d32";
+                            ctx.beginPath();
+                            ctx.arc(sx(pts[0].x), sy(pts[0].y), 5, 0, 2 * Math.PI);
+                            ctx.fill();
+                            ctx.fillStyle = "#c62828";
+                            ctx.beginPath();
+                            ctx.arc(sx(pts[pts.length - 1].x), sy(pts[pts.length - 1].y), 5, 0, 2 * Math.PI);
+                            ctx.fill();
+                        }
+                    }
+                }
+
+                Row {
+                    spacing: 10
+                    Button { text: qsTr("Run"); width: 120; onClicked: trajectoryPopup.runTrajectory() }
+                    Button {
+                        text: qsTr("Stop")
+                        width: 120
+                        onClicked: {
+                            radioRectangle.cmdSender.stopTrajectory();
+                            trajectoryPopup.statusTextValue = "Stopped";
+                        }
+                    }
+                    Text { text: trajectoryPopup.statusTextValue; font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 36 }
+                }
+            }
+        }
+    }
+
     Button{
         id:crazyStart;
         text:qsTr("Start") ;
@@ -599,30 +931,68 @@ Rectangle{
         }
     }
 
+    Image {
+        id: colorImage
+        z: 1000
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 12
+        anchors.bottomMargin: 12
+        width: 220
+        height: 220
+        fillMode: Image.PreserveAspectFit
+        source: Qt.resolvedUrl("color.jpg")
+        cache: true
+        visible: true
+    }
+
     Rectangle {
         id: onlineCountBadge
         z: 999
         anchors.left: parent.left
-        anchors.bottom: parent.bottom
-        anchors.margins: 12
+        anchors.bottom: colorImage.top
+        anchors.bottomMargin: 8
+        anchors.leftMargin: 12
         radius: 8
-        color: "#333333"
+        color: "#333333"  
         opacity: 0.85
 
         // padding
-        width: onlineCountText.implicitWidth + 18
-        height: onlineCountText.implicitHeight + 12
+        width: Math.max(lineCounts.implicitWidth, lineAvgDelay.implicitWidth, lineHighDelay.implicitWidth) + 18
+        height: badgeCol.implicitHeight + 12
 
-        Text {
-            id: onlineCountText
+        Column {
+            id: badgeCol
             anchors.centerIn: parent
-            color: "white"
-            font.family: "SimHei"
-            font.pixelSize: 20
-            font.bold: true
-            text: "蓝车: " + (cmdSender ? cmdSender.onlineBlueCount : 0) + "   黄车: " + (cmdSender ? cmdSender.onlineYellowCount : 0)
+            spacing: 2
+
+            Text {
+                id: lineCounts
+                color: "white"
+                font.family: "SimHei"
+                font.pixelSize: 20
+                font.bold: true
+                text: "蓝车: " + (cmdSender ? cmdSender.onlineBlueCount : 0) + "   黄车: " + (cmdSender ? cmdSender.onlineYellowCount : 0)
+            }
+
+            Text {
+                id: lineAvgDelay
+                color: "white"
+                font.family: "SimHei"
+                font.pixelSize: 16
+                font.bold: true
+                text: "平均延迟: " + (cmdSender ? cmdSender.avgDelayMs : 0) + "ms"
+            }
+
+            Text {
+                id: lineHighDelay
+                color: "white"
+                font.family: "SimHei"
+                font.pixelSize: 16
+                font.bold: true
+                text: "高延迟: " + (cmdSender ? cmdSender.highDelayRobot : "无")
+            }
         }
     }
 
 }
-

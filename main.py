@@ -1,6 +1,9 @@
 # udp receiver for multicast
+import json
+import math
 import os
-import sys, socket, threading
+import sys, socket, threading, time
+from collections import deque
 from PyQt6.QtGui import QFont, QPainter, QColor, QImage, QMouseEvent, QPen
 from PyQt6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PyQt6.QtQuick import QQuickPaintedItem
@@ -37,14 +40,34 @@ changeSendTickLock = threading.Lock()
 # The UI sends packets every ~8ms (see QML Timer), so 200 ticks ~ 1.6s.
 CHANGE_SEND_TICK_MAX = 200
 
+# Command smoothing (trapezoidal velocity profile)
+CMD_SEND_INTERVAL_MS = 8
+CMD_SEND_DT = CMD_SEND_INTERVAL_MS / 1000.0
+# Linear accel in mm/s^2 (protocol uses mm/s)
+VEL_ACCEL_MM_S2 = 16000
+# Angular accel in rad/s^2 (protocol uses mrad/s)
+VELR_ACCEL_RAD_S2 = 60
+VELR_ACCEL_MRAD_S2 = int(VELR_ACCEL_RAD_S2 * 1000)
+
 ipForward = "192.168.31"
 
 onlineTick = [0]*32
+
+# Vehicle display stability: allow short multicast hiccups without immediately hiding robots.
+# A robot is only removed from the UI after it has not been seen for this long.
+ONLINE_REMOVE_AFTER_MS = 6000
+
+# "Delay" here is computed as: now_ms - last_seen_ms (i.e. data age).
+HIGH_DELAY_WARN_MS = 1200
+
+# Smoothing for delay display: compute a 1-second sliding-window mean.
+DELAY_AVG_WINDOW_MS = 1000
 
 MC_ADDR = "225.225.225.225"
 MC_PORT = 13134
 SEND_PORT = 14234
 SINGLE_PORT = 14134
+TRAJECTORY_HISTORY_FILE = "trajectory_history.json"
 
 
 def percent_from_raw_battery(raw10x: int) -> int:
@@ -125,6 +148,8 @@ class CmdSender:
         # self.pb_data.desire_power = power
         self.pb_data.kick_discharge_time = 0
         self.pb_data.dribble_spin = 0
+        self.pb_data.dribble_velocity = int(-50.0 * 100.0)
+        self.pb_data.dribble_torque_ff = int(0.1 * 1000.0)
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(0*1000)
         self.pb_data.cmd_vel.velocity_y = int(0*1000)
@@ -140,15 +165,160 @@ class CmdSender:
         self.pb_data.team_new = zss.Team.UNKNOWN
         self.pb_data.id_new = -1
         self.pb_data.isdebug = True
-        # spin state machine: 0 idle, 1 spinning out, 2 spinning back
-        self._spin_state = 0
-        self._spin_ticks = 0
-        self._spin_ticks_target = 0
-        self._spin_speed = 8000
+        # Trapezoidal velocity profile (current and target in protocol units)
+        self._target_vx = 0
+        self._target_vy = 0
+        self._target_vr = 0
+        self._current_vx = 0
+        self._current_vy = 0
+        self._current_vr = 0
+        self._use_imu_cmd = False
+        self._bypass_ramp_once = False
+        self._trajectory_active = False
+        self._trajectory_segments = []
+        self._trajectory_segment_index = 0
+        self._trajectory_segment_started = 0.0
+        self._trajectory_loop_remaining = 0
         pass
-    # updateCommandParams(int robotID,double velX,double velY,double velR,double ctrl,bool mode,bool shoot,double power)
+
+    def _set_velocity_targets(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
+        self._use_imu_cmd = False
+        self.pb_data.cmd_vel.use_imu = False
+        self._target_vx = int(round(vx_mm_s))
+        self._target_vy = int(round(vy_mm_s))
+        self._target_vr = int(round(vr_rad_s * 1000.0))
+
+    def _build_trajectory_segments(self, spec: dict) -> list[dict]:
+        shape = str(spec.get("shape", "square")).lower()
+        speed = max(1.0, float(spec.get("speed", 500.0)))
+        length = max(1.0, float(spec.get("length", 1000.0)))
+        width = max(1.0, float(spec.get("width", length)))
+        clockwise = bool(spec.get("clockwise", False))
+
+        def straight(distance_mm: float, vx_sign: int, vy_sign: int) -> dict:
+            return {
+                "duration": abs(distance_mm) / speed,
+                "vx": speed * vx_sign,
+                "vy": speed * vy_sign,
+                "vr": 0.0,
+            }
+
+        if shape == "square":
+            return [
+                straight(length, 1, 0),
+                straight(length, 0, 1),
+                straight(length, -1, 0),
+                straight(length, 0, -1),
+            ]
+
+        if shape == "rectangle":
+            return [
+                straight(length, 1, 0),
+                straight(width, 0, 1),
+                straight(length, -1, 0),
+                straight(width, 0, -1),
+            ]
+
+        if shape == "circle":
+            radius = max(1.0, length / 2.0)
+            direction = -1.0 if clockwise else 1.0
+            return [{
+                "duration": 2.0 * math.pi * radius / speed,
+                "vx": speed,
+                "vy": 0.0,
+                "vr": direction * speed / radius,
+            }]
+
+        if shape == "custom":
+            points = spec.get("points", [])
+            if len(points) < 2:
+                raise ValueError("custom trajectory needs at least 2 points")
+            if bool(spec.get("closePath", False)):
+                first = points[0]
+                last = points[-1]
+                if float(first.get("x", 0)) != float(last.get("x", 0)) or float(first.get("y", 0)) != float(last.get("y", 0)):
+                    points = points + [dict(first)]
+
+            segments = []
+            for prev, cur in zip(points, points[1:]):
+                x0 = float(prev.get("x", 0.0))
+                y0 = float(prev.get("y", 0.0))
+                x1 = float(cur.get("x", 0.0))
+                y1 = float(cur.get("y", 0.0))
+                dx = x1 - x0
+                dy = y1 - y0
+                dist = math.hypot(dx, dy)
+                if dist < 1e-6:
+                    continue
+                segments.append({
+                    "duration": dist / speed,
+                    "vx": speed * dx / dist,
+                    "vy": speed * dy / dist,
+                    "vr": 0.0,
+                })
+            if not segments:
+                raise ValueError("custom trajectory has no non-zero segments")
+            return segments
+
+        raise ValueError(f"unsupported trajectory shape: {shape}")
+
+    def startTrajectory(self, spec_json: str) -> bool:
+        try:
+            spec = json.loads(spec_json)
+            segments = self._build_trajectory_segments(spec)
+            repeat = max(1, int(spec.get("repeat", 1)))
+        except Exception as e:
+            print(f"[WARN] startTrajectory failed: {e}")
+            return False
+
+        self._trajectory_segments = segments
+        self._trajectory_segment_index = 0
+        self._trajectory_segment_started = time.monotonic()
+        self._trajectory_loop_remaining = repeat
+        self._trajectory_active = True
+        first = self._trajectory_segments[0]
+        self._set_velocity_targets(first["vx"], first["vy"], first["vr"])
+        print(f"[INFO] trajectory started: {len(segments)} segment(s), repeat={repeat}")
+        return True
+
+    def stopTrajectory(self):
+        self._trajectory_active = False
+        self._trajectory_segments = []
+        self._trajectory_segment_index = 0
+        self._trajectory_loop_remaining = 0
+        self._set_velocity_targets(0.0, 0.0, 0.0)
+        self._current_vx = 0
+        self._current_vy = 0
+        self._current_vr = 0
+        self.pb_data.cmd_vel.velocity_x = 0
+        self.pb_data.cmd_vel.velocity_y = 0
+        self.pb_data.cmd_vel.velocity_r = 0
+
+    def _advance_trajectory(self):
+        if not self._trajectory_active or not self._trajectory_segments:
+            return
+
+        now = time.monotonic()
+        segment = self._trajectory_segments[self._trajectory_segment_index]
+        if now - self._trajectory_segment_started < segment["duration"]:
+            self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+            return
+
+        self._trajectory_segment_index += 1
+        if self._trajectory_segment_index >= len(self._trajectory_segments):
+            self._trajectory_loop_remaining -= 1
+            if self._trajectory_loop_remaining <= 0:
+                self.stopTrajectory()
+                print("[INFO] trajectory finished.")
+                return
+            self._trajectory_segment_index = 0
+
+        self._trajectory_segment_started = now
+        segment = self._trajectory_segments[self._trajectory_segment_index]
+        self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+    # updateCommandParams(int robotID,double velX,double velY,double velR,double ctrl,bool mode,bool shoot,double power,bool use_imu,double angle,double dribble_velocity,double dribble_torque_ff)
     # 在UI.qml中调用来传递控制指令
-    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle):
+    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff):
         # self.pb_data = zss.Robot_Command()
         self.pb_data.robot_id = -1
         self.pb_data.kick_mode = zss.Robot_Command.KickMode.NONE if not shoot else (zss.Robot_Command.KickMode.CHIP if mode else zss.Robot_Command.KickMode.KICK)
@@ -156,14 +326,22 @@ class CmdSender:
         self.pb_data.kick_discharge_time = int(power)
         # print(power)
         self.pb_data.dribble_spin = int(ctrl)
+        self.pb_data.dribble_velocity = int(round(dribble_velocity * 100.0))
+        self.pb_data.dribble_torque_ff = int(round(dribble_torque_ff * 1000.0))
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
-        self.pb_data.cmd_vel.velocity_x = int(velX*1000.0)
-        self.pb_data.cmd_vel.velocity_y = int(velY*1000.0)
+        # Target velocities in protocol units (mm/s, mrad/s)
+        self._target_vx = int(velX*1000.0)
+        self._target_vy = int(velY*1000.0)
         if use_imu:
-            self.pb_data.cmd_vel.velocity_r = int(angle*3.1415926/180.0*1000.0)
+            self._use_imu_cmd = True
+            self._target_vr = int(angle*3.1415926/180.0*1000.0)
             self.pb_data.cmd_vel.imu_theta = int(angle*3.1415926/180.0*1000)
+            # For IMU angle mode, apply immediately to avoid ramping an angle command.
+            self._current_vr = self._target_vr
+            self.pb_data.cmd_vel.velocity_r = int(self._target_vr)
         else:
-            self.pb_data.cmd_vel.velocity_r = int(velR*1000.0)
+            self._use_imu_cmd = False
+            self._target_vr = int(velR*1000.0)
         self.pb_data.cmd_vel.use_imu = use_imu
         # self.pb_data.cmd_vel.imu_theta = angle*3.1415926/180.0
         self.pb_data.comm_type = zss.Robot_Command.CommType.UDP_WIFI
@@ -189,35 +367,22 @@ class CmdSender:
         global changeSendTick
         changeSendTick = 0
 
-    def spinHalfReturn(self, speed=None, duration_ticks=None):
-        """Trigger continuous half-turn out/back oscillation.
-
-        speed: integer (same units as cmd_vel.velocity_r)
-        duration_ticks: number of sendCommand ticks for each half-phase
-
-        Keeps alternating direction until stopSpin() is called.
-        """
-        if speed is not None:
-            try:
-                self._spin_speed = int(speed)
-            except Exception:
-                pass
-        if duration_ticks is not None:
-            try:
-                self._spin_ticks_target = int(duration_ticks)
-            except Exception:
-                pass
-        # start first phase
-        self._spin_state = 1
-        self._spin_ticks = 0
-
-    def stopSpin(self):
-        self._spin_state = 0
-        self._spin_ticks = 0
-        try:
-            self.pb_data.cmd_vel.velocity_r = 0
-        except Exception:
-            pass
+    def emergencyStop(self):
+        # Immediately send zero velocity (no trapezoid ramp)
+        self._trajectory_active = False
+        self._trajectory_segments = []
+        self._use_imu_cmd = False
+        self.pb_data.cmd_vel.use_imu = False
+        self._target_vx = 0
+        self._target_vy = 0
+        self._target_vr = 0
+        self._current_vx = 0
+        self._current_vy = 0
+        self._current_vr = 0
+        self._bypass_ramp_once = True
+        self.pb_data.cmd_vel.velocity_x = 0
+        self.pb_data.cmd_vel.velocity_y = 0
+        self.pb_data.cmd_vel.velocity_r = 0
 
     def sendCommand(self,infoReceiver:InfoReceiver):
         # print("sendCommand",str(self.pb_data))
@@ -230,6 +395,35 @@ class CmdSender:
                     
         # print("debug")
         selectedDir = infoReceiver.selected
+
+        self._advance_trajectory()
+
+        # Trapezoidal profile: ramp current velocities toward target each tick.
+        if self._bypass_ramp_once:
+            self._current_vx = int(self._target_vx)
+            self._current_vy = int(self._target_vy)
+            self._current_vr = int(self._target_vr)
+            self._bypass_ramp_once = False
+        else:
+            max_delta_v = int(VEL_ACCEL_MM_S2 * CMD_SEND_DT)
+            max_delta_r = int(VELR_ACCEL_MRAD_S2 * CMD_SEND_DT)
+
+            def _ramp(current: int, target: int, max_delta: int) -> int:
+                if target > current:
+                    return min(current + max_delta, target)
+                if target < current:
+                    return max(current - max_delta, target)
+                return current
+
+            self._current_vx = _ramp(self._current_vx, self._target_vx, max_delta_v)
+            self._current_vy = _ramp(self._current_vy, self._target_vy, max_delta_v)
+            if not self._use_imu_cmd:
+                self._current_vr = _ramp(self._current_vr, self._target_vr, max_delta_r)
+
+        self.pb_data.cmd_vel.velocity_x = int(self._current_vx)
+        self.pb_data.cmd_vel.velocity_y = int(self._current_vy)
+        if not self._use_imu_cmd:
+            self.pb_data.cmd_vel.velocity_r = int(self._current_vr)
         global ipForward 
         ipForward_t = ipForward
         for id,info in selectedDir.items():
@@ -242,23 +436,6 @@ class CmdSender:
                     plotData[i+len(fdbNeedPlotName)] = eval(refNeedPlotName[i])
               
             self.pb_data.robot_id = id
-            # If a user-requested spin is active, override rotational command
-            if getattr(self, '_spin_state', 0) != 0:
-                ticks_target = max(1, int(getattr(self, '_spin_ticks_target', 1) or 1))
-                if self._spin_state == 1:
-                    self.pb_data.cmd_vel.velocity_r = int(self._spin_speed)
-                elif self._spin_state == 2:
-                    self.pb_data.cmd_vel.velocity_r = -int(self._spin_speed)
-                # advance ticks and potentially switch phase
-                self._spin_ticks += 1
-                if self._spin_ticks >= ticks_target:
-                    if self._spin_state == 1:
-                        self._spin_state = 2
-                        self._spin_ticks = 0
-                    else:
-                        # finished both phases; keep alternating forever
-                        self._spin_state = 1
-                        self._spin_ticks = 0
             # print("sendIp: ",info.ip)
             # Serialize    
             # print("send",self.pb_data.need_change_team, self.pb_data.need_change_id)
@@ -293,6 +470,9 @@ class InfoViewer(QQuickPaintedItem):
         self._pending_change = None
         self._online_blue = 0
         self._online_yellow = 0
+        self._avg_delay_ms = 0  # smoothed (sliding-window) average
+        self._delay_samples = deque()  # (ts_ms, instant_avg_delay_ms)
+        self._high_delay_text = "无"
         # accept mouse event left click
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton)
         self.receiverNeedStop = False
@@ -318,11 +498,15 @@ class InfoViewer(QQuickPaintedItem):
         self.refresh.connect(self.paintRefresh)
         self.initFinish = True
 
-    def _recalc_online_counts(self):
+    def _recalc_online_stats(self):
+        now_ms = int(datetime.now().timestamp() * 1000)
+
         blue = 0
         yellow = 0
+        delays: list[tuple[int, int]] = []  # (delay_ms, slot_index)
         seen = set()
         for info in self.infoReceiver.info.values():
+            slot = int(info.robot_id) + (int(info.team) - 1) * 16
             key = (int(info.team), int(info.robot_id))
             if key in seen:
                 continue
@@ -332,9 +516,52 @@ class InfoViewer(QQuickPaintedItem):
             elif int(info.team) == 2:
                 yellow += 1
 
-        if blue != self._online_blue or yellow != self._online_yellow:
+            last_seen = 0
+            try:
+                onlineLock.acquire()
+                last_seen = int(onlineTick[slot]) if 0 <= slot < len(onlineTick) else 0
+            finally:
+                onlineLock.release()
+            if last_seen > 0:
+                delay_ms = max(0, now_ms - last_seen)
+                # Only consider robots still within the display grace period.
+                if delay_ms <= ONLINE_REMOVE_AFTER_MS:
+                    delays.append((delay_ms, slot))
+
+        instant_avg_delay_ms = int(round(sum(d for d, _ in delays) / len(delays))) if delays else 0
+
+        # Maintain a 1-second sliding window over instant average samples.
+        if delays:
+            self._delay_samples.append((now_ms, instant_avg_delay_ms))
+            cutoff = now_ms - DELAY_AVG_WINDOW_MS
+            while self._delay_samples and self._delay_samples[0][0] < cutoff:
+                self._delay_samples.popleft()
+            avg_delay_ms = int(round(sum(v for _, v in self._delay_samples) / len(self._delay_samples))) if self._delay_samples else instant_avg_delay_ms
+        else:
+            # No online robots: reset window.
+            self._delay_samples.clear()
+            avg_delay_ms = 0
+
+        high_delay_text = "无"
+        if delays:
+            worst_delay_ms, worst_slot = max(delays, key=lambda x: x[0])
+            if worst_delay_ms >= HIGH_DELAY_WARN_MS:
+                worst_team = 1 if worst_slot < 16 else 2
+                worst_id = worst_slot % 16
+                team_cn = "蓝" if worst_team == 1 else "黄"
+                high_delay_text = f"{team_cn}{worst_id} {worst_delay_ms}ms"
+
+        changed = (
+            blue != self._online_blue
+            or yellow != self._online_yellow
+            or avg_delay_ms != self._avg_delay_ms
+            or high_delay_text != self._high_delay_text
+        )
+        if changed:
             self._online_blue = blue
             self._online_yellow = yellow
+            self._avg_delay_ms = avg_delay_ms
+            self._high_delay_text = high_delay_text
             self.onlineCountsChanged.emit()
 
     @pyqtProperty(int, notify=onlineCountsChanged)
@@ -344,6 +571,14 @@ class InfoViewer(QQuickPaintedItem):
     @pyqtProperty(int, notify=onlineCountsChanged)
     def onlineYellowCount(self):
         return int(self._online_yellow)
+
+    @pyqtProperty(int, notify=onlineCountsChanged)
+    def avgDelayMs(self):
+        return int(self._avg_delay_ms)
+
+    @pyqtProperty(str, notify=onlineCountsChanged)
+    def highDelayRobot(self):
+        return str(self._high_delay_text)
                 
     def parse_and_paint_signal(self, data, ip_str):
         if self.ready and self.painter.isActive():
@@ -358,7 +593,7 @@ class InfoViewer(QQuickPaintedItem):
         for i in range(32):
             infoDir = self.infoReceiver.info
             selectDir = self.infoReceiver.selected
-            if now - onlineTick_t[i] < 2000:
+            if now - onlineTick_t[i] < ONLINE_REMOVE_AFTER_MS:
                 for info in list(infoDir.values()):
                     if (info.team-1)*16 + info.robot_id == i:
                         self.drawSignal.emit(i%16,info)
@@ -381,8 +616,11 @@ class InfoViewer(QQuickPaintedItem):
                     self.infoReceiver.selected = selectDir
                     self.ifDraw[i] = False 
 
-                # Update online counts after potential removals
-                self._recalc_online_counts()
+                # Update online stats after potential removals
+                self._recalc_online_stats()
+
+            # Keep delay statistics fresh even when packets pause briefly.
+            self._recalc_online_stats()
                 
     @pyqtSlot()
     def close(self):
@@ -401,8 +639,8 @@ class InfoViewer(QQuickPaintedItem):
                 onlineTick[info.robot_id + (info.team-1)*16] = int(datetime.now().timestamp() * 1000)
                 onlineLock.release()
 
-            # Update online counts on every multicast update
-            self._recalc_online_counts()
+            # Update online stats on every multicast update
+            self._recalc_online_stats()
 
             # Finalize pending change as soon as multicast reports the new team/id.
             pending = self._pending_change
@@ -662,9 +900,9 @@ class InfoViewer(QQuickPaintedItem):
         return self.width()*(v)
     def _h(self,n,v):
         return self.height()/self.MAX_PLAYER*(v)
-    @pyqtSlot(int,float,float,float,float,bool,bool,float,bool,float,bool,bool)
-    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,control_all,control_all_which_team):
-        self.cmdSender.updateCommandParams(robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle)      
+    @pyqtSlot(int,float,float,float,float,bool,bool,float,bool,float,float,float,bool,bool)
+    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff,control_all,control_all_which_team):
+        self.cmdSender.updateCommandParams(robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff)
         self.control_all = control_all
         self.control_all_which_team = control_all_which_team
         
@@ -898,6 +1136,60 @@ class InfoViewer(QQuickPaintedItem):
         self.cmdSender.changeId(int(new_robot_id))
 
     @pyqtSlot(int)
+    def changeTeamAll(self, team_new):
+        """
+        Change the team of all currently known robots to `team_new` without changing IDs.
+        Rules:
+        - If a robot is already in the target team, do nothing.
+        - If a robot's ID already exists in the target team, do nothing.
+        - Otherwise, switch its team while keeping the same ID.
+        Sends repeated change packets directly to each robot's IP for reliability.
+        """
+        if team_new not in (zss.Team.BLUE, zss.Team.YELLOW):
+            return
+
+        infos = list(self.infoReceiver.info.values())
+        if not infos:
+            print("[WARN] changeTeamAll: no robots known.")
+            return
+
+        target_team = int(team_new)
+        target_team_ids = {int(info.robot_id) for info in infos if int(info.team) == target_team}
+        changed = 0
+        skipped_conflict = 0
+
+        for info in infos:
+            if int(info.team) == target_team:
+                continue
+            robot_id = int(info.robot_id)
+            if robot_id in target_team_ids:
+                skipped_conflict += 1
+                continue
+
+            pb = zss.Robot_Command()
+            pb.robot_id = robot_id
+            pb.need_change_team = True
+            pb.team_new = target_team
+            pb.need_change_id = True
+            pb.id_new = robot_id
+            pb.isdebug = True
+            data = pb.SerializeToString()
+            for _ in range(20):
+                try:
+                    self.cmdSender.udpSender.send(data, ipForward + "." + format(int(info.ip)), SEND_PORT)
+                except Exception as e:
+                    print(f"[ERROR] changeTeamAll send failed to {info.ip}: {e}")
+
+            target_team_ids.add(robot_id)
+            changed += 1
+
+        if changed == 0 and skipped_conflict == 0:
+            print("[INFO] changeTeamAll: no robots needed changes.")
+        if skipped_conflict > 0:
+            print(f"[INFO] changeTeamAll: skipped {skipped_conflict} robot(s) due to ID conflicts in target team.")
+
+
+    @pyqtSlot(int)
     def changeId(self, id_new):
         if id_new < 0 or id_new > 15:
             return
@@ -935,42 +1227,7 @@ class InfoViewer(QQuickPaintedItem):
         self.cmdSender.changeId(id_new)
 
     @pyqtSlot()
-    def spinHalfReturn(self):
-        # Expose a convenience call to start a half-turn then return sequence
-        # Configure defaults: duration ticks per half-phase and speed
-        # These values are conservative; adjust if robot rotates too slow/fast.
-        half_ticks = 125  # ~1s at 8ms timer
-        speed = 8000
-        self.cmdSender.spinHalfReturn(speed=speed, duration_ticks=half_ticks)
-
-    @pyqtSlot()
-    def stopSpin(self):
-        self.cmdSender.stopSpin()
-
-    @pyqtSlot(int, int)
-    def spinHalfReturnWith(self, velR_ui, half_ms):
-        """Spin half turn and return with user-controlled parameters.
-
-        velR_ui: same unit/range as UI Vr (e.g. 0..8000).
-        half_ms: duration per half-phase in milliseconds.
-
-        Internally maps to protocol velocity_r which is scaled by ~10 (UI uses r_VELR_RATIO=0.01 then *1000).
-        """
-        try:
-            velR_ui = int(velR_ui)
-        except Exception:
-            velR_ui = 0
-        try:
-            half_ms = int(half_ms)
-        except Exception:
-            half_ms = 0
-
-        # Convert UI Vr (0..8000) to protocol units.
-        speed_cmd = int(velR_ui * 10)
-        # QML send timer is 8ms.
-        half_ticks = max(1, int(round(max(0, half_ms) / 8.0)))
-        self.cmdSender.spinHalfReturn(speed=speed_cmd, duration_ticks=half_ticks)
-         
+    
         
     @pyqtSlot()    
     def plotStart(self):
@@ -985,6 +1242,73 @@ class InfoViewer(QQuickPaintedItem):
         #     timer.stop()
         if needPlot:
             timer.stop()
+
+    def _trajectory_history_path(self) -> str:
+        return os.path.join(os.path.abspath("."), TRAJECTORY_HISTORY_FILE)
+
+    def _read_trajectory_history(self) -> list:
+        path = self._trajectory_history_path()
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            print(f"[WARN] read trajectory history failed: {e}")
+            return []
+
+    def _write_trajectory_history(self, data: list) -> bool:
+        try:
+            with open(self._trajectory_history_path(), "w", encoding="utf-8") as file:
+                json.dump(data, file, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"[WARN] write trajectory history failed: {e}")
+            return False
+
+    @pyqtSlot(str, result=bool)
+    def startTrajectory(self, spec_json):
+        return self.cmdSender.startTrajectory(spec_json)
+
+    @pyqtSlot()
+    def stopTrajectory(self):
+        self.cmdSender.stopTrajectory()
+
+    @pyqtSlot(result=str)
+    def trajectoryHistoryJson(self):
+        return json.dumps(self._read_trajectory_history(), ensure_ascii=False)
+
+    @pyqtSlot(str, str, result=bool)
+    def saveTrajectoryHistory(self, name, spec_json):
+        name = str(name).strip()
+        if not name:
+            name = "trajectory"
+        try:
+            spec = json.loads(spec_json)
+        except Exception as e:
+            print(f"[WARN] saveTrajectoryHistory invalid spec: {e}")
+            return False
+
+        data = self._read_trajectory_history()
+        item = {
+            "name": name,
+            "spec": spec,
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        replaced = False
+        for index, old in enumerate(data):
+            if old.get("name") == name:
+                data[index] = item
+                replaced = True
+                break
+        if not replaced:
+            data.append(item)
+        return self._write_trajectory_history(data)
+
+    @pyqtSlot()
+    def emergencyStop(self):
+        self.cmdSender.emergencyStop()
     
 
 
@@ -1141,5 +1465,3 @@ if __name__ == '__main__':
     # udpSender = UdpSender()
     # while True:
     #     time.sleep(1)
-
-

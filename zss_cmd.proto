@@ -105,6 +105,10 @@ message Robot_Command {
     int32 id_new = 17;
     bool isdebug = 18;
     repeated sint32 wheel_pid = 19;
+    // dribbler velocity command, turns/s * 100
+    sint32 dribble_velocity = 20;
+    // dribbler torque feed-forward command, Nm * 1000
+    sint32 dribble_torque_ff = 21;
 }
 
 message Robot_Command_Mini{
