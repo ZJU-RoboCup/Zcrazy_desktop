@@ -40,15 +40,6 @@ changeSendTickLock = threading.Lock()
 # The UI sends packets every ~8ms (see QML Timer), so 200 ticks ~ 1.6s.
 CHANGE_SEND_TICK_MAX = 200
 
-# Command smoothing (trapezoidal velocity profile)
-CMD_SEND_INTERVAL_MS = 8
-CMD_SEND_DT = CMD_SEND_INTERVAL_MS / 1000.0
-# Linear accel in mm/s^2 (protocol uses mm/s)
-VEL_ACCEL_MM_S2 = 16000
-# Angular accel in rad/s^2 (protocol uses mrad/s)
-VELR_ACCEL_RAD_S2 = 60
-VELR_ACCEL_MRAD_S2 = int(VELR_ACCEL_RAD_S2 * 1000)
-
 ipForward = "192.168.31"
 
 onlineTick = [0]*32
@@ -165,15 +156,6 @@ class CmdSender:
         self.pb_data.team_new = zss.Team.UNKNOWN
         self.pb_data.id_new = -1
         self.pb_data.isdebug = True
-        # Trapezoidal velocity profile (current and target in protocol units)
-        self._target_vx = 0
-        self._target_vy = 0
-        self._target_vr = 0
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self._use_imu_cmd = False
-        self._bypass_ramp_once = False
         self._trajectory_active = False
         self._trajectory_segments = []
         self._trajectory_segment_index = 0
@@ -181,12 +163,11 @@ class CmdSender:
         self._trajectory_loop_remaining = 0
         pass
 
-    def _set_velocity_targets(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
-        self._use_imu_cmd = False
+    def _apply_velocity(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
         self.pb_data.cmd_vel.use_imu = False
-        self._target_vx = int(round(vx_mm_s))
-        self._target_vy = int(round(vy_mm_s))
-        self._target_vr = int(round(vr_rad_s * 1000.0))
+        self.pb_data.cmd_vel.velocity_x = int(round(vx_mm_s))
+        self.pb_data.cmd_vel.velocity_y = int(round(vy_mm_s))
+        self.pb_data.cmd_vel.velocity_r = int(round(vr_rad_s * 1000.0))
 
     def _build_trajectory_segments(self, spec: dict) -> list[dict]:
         shape = str(spec.get("shape", "square")).lower()
@@ -277,7 +258,7 @@ class CmdSender:
         self._trajectory_loop_remaining = repeat
         self._trajectory_active = True
         first = self._trajectory_segments[0]
-        self._set_velocity_targets(first["vx"], first["vy"], first["vr"])
+        self._apply_velocity(first["vx"], first["vy"], first["vr"])
         print(f"[INFO] trajectory started: {len(segments)} segment(s), repeat={repeat}")
         return True
 
@@ -286,13 +267,7 @@ class CmdSender:
         self._trajectory_segments = []
         self._trajectory_segment_index = 0
         self._trajectory_loop_remaining = 0
-        self._set_velocity_targets(0.0, 0.0, 0.0)
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self.pb_data.cmd_vel.velocity_x = 0
-        self.pb_data.cmd_vel.velocity_y = 0
-        self.pb_data.cmd_vel.velocity_r = 0
+        self._apply_velocity(0.0, 0.0, 0.0)
 
     def _advance_trajectory(self):
         if not self._trajectory_active or not self._trajectory_segments:
@@ -301,7 +276,7 @@ class CmdSender:
         now = time.monotonic()
         segment = self._trajectory_segments[self._trajectory_segment_index]
         if now - self._trajectory_segment_started < segment["duration"]:
-            self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+            self._apply_velocity(segment["vx"], segment["vy"], segment["vr"])
             return
 
         self._trajectory_segment_index += 1
@@ -315,7 +290,7 @@ class CmdSender:
 
         self._trajectory_segment_started = now
         segment = self._trajectory_segments[self._trajectory_segment_index]
-        self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+        self._apply_velocity(segment["vx"], segment["vy"], segment["vr"])
     # updateCommandParams(int robotID,double velX,double velY,double velR,double ctrl,bool mode,bool shoot,double power,bool use_imu,double angle,double dribble_velocity,double dribble_torque_ff)
     # 在UI.qml中调用来传递控制指令
     def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff):
@@ -329,19 +304,16 @@ class CmdSender:
         self.pb_data.dribble_velocity = int(round(dribble_velocity * 100.0))
         self.pb_data.dribble_torque_ff = int(round(dribble_torque_ff * 1000.0))
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
-        # Target velocities in protocol units (mm/s, mrad/s)
-        self._target_vx = int(velX*1000.0)
-        self._target_vy = int(velY*1000.0)
+        self.pb_data.cmd_vel.velocity_x = int(velX * 1000.0)
+        self.pb_data.cmd_vel.velocity_y = int(velY * 1000.0)
         if use_imu:
-            self._use_imu_cmd = True
-            self._target_vr = int(angle*3.1415926/180.0*1000.0)
-            self.pb_data.cmd_vel.imu_theta = int(angle*3.1415926/180.0*1000)
-            # For IMU angle mode, apply immediately to avoid ramping an angle command.
-            self._current_vr = self._target_vr
-            self.pb_data.cmd_vel.velocity_r = int(self._target_vr)
+            a = angle % 360
+            if a > 180:
+                a -= 360
+            self.pb_data.cmd_vel.velocity_r = int(a * 3.1415926 / 180.0 * 1000)
+            self.pb_data.cmd_vel.imu_theta = int(a * 3.1415926 / 180.0 * 1000)
         else:
-            self._use_imu_cmd = False
-            self._target_vr = int(velR*1000.0)
+            self.pb_data.cmd_vel.velocity_r = int(velR * 1000.0)
         self.pb_data.cmd_vel.use_imu = use_imu
         # self.pb_data.cmd_vel.imu_theta = angle*3.1415926/180.0
         self.pb_data.comm_type = zss.Robot_Command.CommType.UDP_WIFI
@@ -371,15 +343,7 @@ class CmdSender:
         # Immediately send zero velocity (no trapezoid ramp)
         self._trajectory_active = False
         self._trajectory_segments = []
-        self._use_imu_cmd = False
         self.pb_data.cmd_vel.use_imu = False
-        self._target_vx = 0
-        self._target_vy = 0
-        self._target_vr = 0
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self._bypass_ramp_once = True
         self.pb_data.cmd_vel.velocity_x = 0
         self.pb_data.cmd_vel.velocity_y = 0
         self.pb_data.cmd_vel.velocity_r = 0
@@ -398,32 +362,6 @@ class CmdSender:
 
         self._advance_trajectory()
 
-        # Trapezoidal profile: ramp current velocities toward target each tick.
-        if self._bypass_ramp_once:
-            self._current_vx = int(self._target_vx)
-            self._current_vy = int(self._target_vy)
-            self._current_vr = int(self._target_vr)
-            self._bypass_ramp_once = False
-        else:
-            max_delta_v = int(VEL_ACCEL_MM_S2 * CMD_SEND_DT)
-            max_delta_r = int(VELR_ACCEL_MRAD_S2 * CMD_SEND_DT)
-
-            def _ramp(current: int, target: int, max_delta: int) -> int:
-                if target > current:
-                    return min(current + max_delta, target)
-                if target < current:
-                    return max(current - max_delta, target)
-                return current
-
-            self._current_vx = _ramp(self._current_vx, self._target_vx, max_delta_v)
-            self._current_vy = _ramp(self._current_vy, self._target_vy, max_delta_v)
-            if not self._use_imu_cmd:
-                self._current_vr = _ramp(self._current_vr, self._target_vr, max_delta_r)
-
-        self.pb_data.cmd_vel.velocity_x = int(self._current_vx)
-        self.pb_data.cmd_vel.velocity_y = int(self._current_vy)
-        if not self._use_imu_cmd:
-            self.pb_data.cmd_vel.velocity_r = int(self._current_vr)
         global ipForward 
         ipForward_t = ipForward
         for id,info in selectedDir.items():
