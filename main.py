@@ -40,15 +40,6 @@ changeSendTickLock = threading.Lock()
 # The UI sends packets every ~8ms (see QML Timer), so 200 ticks ~ 1.6s.
 CHANGE_SEND_TICK_MAX = 200
 
-# Command smoothing (trapezoidal velocity profile)
-CMD_SEND_INTERVAL_MS = 8
-CMD_SEND_DT = CMD_SEND_INTERVAL_MS / 1000.0
-# Linear accel in mm/s^2 (protocol uses mm/s)
-VEL_ACCEL_MM_S2 = 16000
-# Angular accel in rad/s^2 (protocol uses mrad/s)
-VELR_ACCEL_RAD_S2 = 60
-VELR_ACCEL_MRAD_S2 = int(VELR_ACCEL_RAD_S2 * 1000)
-
 ipForward = "192.168.31"
 
 onlineTick = [0]*32
@@ -165,15 +156,6 @@ class CmdSender:
         self.pb_data.team_new = zss.Team.UNKNOWN
         self.pb_data.id_new = -1
         self.pb_data.isdebug = True
-        # Trapezoidal velocity profile (current and target in protocol units)
-        self._target_vx = 0
-        self._target_vy = 0
-        self._target_vr = 0
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self._use_imu_cmd = False
-        self._bypass_ramp_once = False
         self._trajectory_active = False
         self._trajectory_segments = []
         self._trajectory_segment_index = 0
@@ -181,12 +163,12 @@ class CmdSender:
         self._trajectory_loop_remaining = 0
         pass
 
-    def _set_velocity_targets(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
-        self._use_imu_cmd = False
+    def _apply_velocity(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
         self.pb_data.cmd_vel.use_imu = False
-        self._target_vx = int(round(vx_mm_s))
-        self._target_vy = int(round(vy_mm_s))
-        self._target_vr = int(round(vr_rad_s * 1000.0))
+        self.pb_data.cmd_vel.imu_theta = 0
+        self.pb_data.cmd_vel.velocity_x = int(round(vx_mm_s))
+        self.pb_data.cmd_vel.velocity_y = int(round(vy_mm_s))
+        self.pb_data.cmd_vel.velocity_r = int(round(vr_rad_s * 1000.0))
 
     def _build_trajectory_segments(self, spec: dict) -> list[dict]:
         shape = str(spec.get("shape", "square")).lower()
@@ -277,7 +259,7 @@ class CmdSender:
         self._trajectory_loop_remaining = repeat
         self._trajectory_active = True
         first = self._trajectory_segments[0]
-        self._set_velocity_targets(first["vx"], first["vy"], first["vr"])
+        self._apply_velocity(first["vx"], first["vy"], first["vr"])
         print(f"[INFO] trajectory started: {len(segments)} segment(s), repeat={repeat}")
         return True
 
@@ -286,13 +268,7 @@ class CmdSender:
         self._trajectory_segments = []
         self._trajectory_segment_index = 0
         self._trajectory_loop_remaining = 0
-        self._set_velocity_targets(0.0, 0.0, 0.0)
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self.pb_data.cmd_vel.velocity_x = 0
-        self.pb_data.cmd_vel.velocity_y = 0
-        self.pb_data.cmd_vel.velocity_r = 0
+        self._apply_velocity(0.0, 0.0, 0.0)
 
     def _advance_trajectory(self):
         if not self._trajectory_active or not self._trajectory_segments:
@@ -301,7 +277,7 @@ class CmdSender:
         now = time.monotonic()
         segment = self._trajectory_segments[self._trajectory_segment_index]
         if now - self._trajectory_segment_started < segment["duration"]:
-            self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+            self._apply_velocity(segment["vx"], segment["vy"], segment["vr"])
             return
 
         self._trajectory_segment_index += 1
@@ -315,7 +291,7 @@ class CmdSender:
 
         self._trajectory_segment_started = now
         segment = self._trajectory_segments[self._trajectory_segment_index]
-        self._set_velocity_targets(segment["vx"], segment["vy"], segment["vr"])
+        self._apply_velocity(segment["vx"], segment["vy"], segment["vr"])
     # updateCommandParams(int robotID,double velX,double velY,double velR,double ctrl,bool mode,bool shoot,double power,bool use_imu,double angle,double dribble_velocity,double dribble_torque_ff)
     # 在UI.qml中调用来传递控制指令
     def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff):
@@ -329,19 +305,18 @@ class CmdSender:
         self.pb_data.dribble_velocity = int(round(dribble_velocity * 100.0))
         self.pb_data.dribble_torque_ff = int(round(dribble_torque_ff * 1000.0))
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
-        # Target velocities in protocol units (mm/s, mrad/s)
-        self._target_vx = int(velX*1000.0)
-        self._target_vy = int(velY*1000.0)
+        self.pb_data.cmd_vel.velocity_x = int(velX*1000.0)
+        self.pb_data.cmd_vel.velocity_y = int(velY*1000.0)
         if use_imu:
-            self._use_imu_cmd = True
-            self._target_vr = int(angle*3.1415926/180.0*1000.0)
-            self.pb_data.cmd_vel.imu_theta = int(angle*3.1415926/180.0*1000)
-            # For IMU angle mode, apply immediately to avoid ramping an angle command.
-            self._current_vr = self._target_vr
-            self.pb_data.cmd_vel.velocity_r = int(self._target_vr)
+            wrapped_angle = angle % 360
+            if wrapped_angle > 180:
+                wrapped_angle -= 360
+            angle_cmd = int(wrapped_angle*3.1415926/180.0*1000)
+            self.pb_data.cmd_vel.velocity_r = angle_cmd
+            self.pb_data.cmd_vel.imu_theta = angle_cmd
         else:
-            self._use_imu_cmd = False
-            self._target_vr = int(velR*1000.0)
+            self.pb_data.cmd_vel.velocity_r = int(velR*1000.0)
+            self.pb_data.cmd_vel.imu_theta = 0
         self.pb_data.cmd_vel.use_imu = use_imu
         # self.pb_data.cmd_vel.imu_theta = angle*3.1415926/180.0
         self.pb_data.comm_type = zss.Robot_Command.CommType.UDP_WIFI
@@ -371,15 +346,8 @@ class CmdSender:
         # Immediately send zero velocity (no trapezoid ramp)
         self._trajectory_active = False
         self._trajectory_segments = []
-        self._use_imu_cmd = False
         self.pb_data.cmd_vel.use_imu = False
-        self._target_vx = 0
-        self._target_vy = 0
-        self._target_vr = 0
-        self._current_vx = 0
-        self._current_vy = 0
-        self._current_vr = 0
-        self._bypass_ramp_once = True
+        self.pb_data.cmd_vel.imu_theta = 0
         self.pb_data.cmd_vel.velocity_x = 0
         self.pb_data.cmd_vel.velocity_y = 0
         self.pb_data.cmd_vel.velocity_r = 0
@@ -397,33 +365,6 @@ class CmdSender:
         selectedDir = infoReceiver.selected
 
         self._advance_trajectory()
-
-        # Trapezoidal profile: ramp current velocities toward target each tick.
-        if self._bypass_ramp_once:
-            self._current_vx = int(self._target_vx)
-            self._current_vy = int(self._target_vy)
-            self._current_vr = int(self._target_vr)
-            self._bypass_ramp_once = False
-        else:
-            max_delta_v = int(VEL_ACCEL_MM_S2 * CMD_SEND_DT)
-            max_delta_r = int(VELR_ACCEL_MRAD_S2 * CMD_SEND_DT)
-
-            def _ramp(current: int, target: int, max_delta: int) -> int:
-                if target > current:
-                    return min(current + max_delta, target)
-                if target < current:
-                    return max(current - max_delta, target)
-                return current
-
-            self._current_vx = _ramp(self._current_vx, self._target_vx, max_delta_v)
-            self._current_vy = _ramp(self._current_vy, self._target_vy, max_delta_v)
-            if not self._use_imu_cmd:
-                self._current_vr = _ramp(self._current_vr, self._target_vr, max_delta_r)
-
-        self.pb_data.cmd_vel.velocity_x = int(self._current_vx)
-        self.pb_data.cmd_vel.velocity_y = int(self._current_vy)
-        if not self._use_imu_cmd:
-            self.pb_data.cmd_vel.velocity_r = int(self._current_vr)
         global ipForward 
         ipForward_t = ipForward
         for id,info in selectedDir.items():
@@ -473,6 +414,15 @@ class InfoViewer(QQuickPaintedItem):
         self._avg_delay_ms = 0  # smoothed (sliding-window) average
         self._delay_samples = deque()  # (ts_ms, instant_avg_delay_ms)
         self._high_delay_text = "无"
+        self._latest_status = None
+        self._live_plot_fields = []
+        self._live_plot_data = {}
+        self._live_plot_curves = {}
+        self._live_plot_win = None
+        self._live_plot_widget = None
+        self._live_plot_tick = 0
+        self._live_plot_timer = QTimer()
+        self._live_plot_timer.timeout.connect(self._append_live_plot_sample)
         # accept mouse event left click
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton | Qt.MouseButton.RightButton)
         self.receiverNeedStop = False
@@ -626,6 +576,7 @@ class InfoViewer(QQuickPaintedItem):
     def close(self):
         print("closing info viewer, stop recv thread")
         self.receiverNeedStop = True
+        self._live_plot_timer.stop()
         if needPlot:
             timer.stop()
             
@@ -957,9 +908,86 @@ class InfoViewer(QQuickPaintedItem):
         if self.ready and self.painter.isActive():
             self.statusSingnal.emit(info)
 
+    def _live_plot_value(self, field_key: str, info: zss.Robot_Status) -> float:
+        if field_key == "odom_vx":
+            return float(info.real_pose[1]) if len(info.real_pose) > 1 else 0.0
+        if field_key == "odom_vy":
+            return float(info.real_pose[3]) if len(info.real_pose) > 3 else 0.0
+        if field_key == "omega_z":
+            return float(info.imu_data[6]) if len(info.imu_data) > 6 else 0.0
+        if field_key == "angle_z":
+            return float(info.imu_data[10]) if len(info.imu_data) > 10 else 0.0
+        if field_key.startswith("wheel"):
+            try:
+                index = int(field_key.replace("wheel", ""))
+                return float(info.wheel_encoder[index]) if len(info.wheel_encoder) > index else 0.0
+            except Exception:
+                return 0.0
+        if field_key == "battery":
+            return float(info.battery) / 10.0
+        if field_key == "capacitance":
+            return float(info.capacitance) / 10.0
+        return 0.0
+
+    def _append_live_plot_sample(self):
+        if self._latest_status is None or not self._live_plot_fields:
+            return
+        self._live_plot_tick += 1
+        max_points = 800
+        for field in self._live_plot_fields:
+            values = self._live_plot_data.setdefault(field, [])
+            values.append(self._live_plot_value(field, self._latest_status))
+            if len(values) > max_points:
+                del values[:len(values) - max_points]
+
+        for field, curve in self._live_plot_curves.items():
+            values = self._live_plot_data.get(field, [])
+            start = self._live_plot_tick - len(values) + 1
+            curve.setData(list(range(start, start + len(values))), values)
+
+    @pyqtSlot(str)
+    def startLivePlot(self, fields_csv):
+        fields = [field.strip() for field in str(fields_csv).split(",") if field.strip()]
+        if not fields:
+            print("[WARN] startLivePlot: no fields selected.")
+            return
+
+        self._live_plot_fields = fields
+        self._live_plot_data = {field: [] for field in fields}
+        self._live_plot_curves = {}
+        self._live_plot_tick = 0
+
+        if self._live_plot_win is None:
+            self._live_plot_win = pg.GraphicsLayoutWidget(show=True)
+            self._live_plot_win.setWindowTitle("zcrazy live plot")
+            self._live_plot_win.resize(900, 520)
+        else:
+            self._live_plot_win.show()
+            self._live_plot_win.clear()
+
+        self._live_plot_widget = self._live_plot_win.addPlot()
+        self._live_plot_widget.showGrid(x=True, y=True)
+        self._live_plot_widget.addLegend()
+        for field in fields:
+            self._live_plot_curves[field] = self._live_plot_widget.plot(name=field)
+
+        self._live_plot_timer.start(50)
+
+    @pyqtSlot()
+    def stopLivePlot(self):
+        self._live_plot_timer.stop()
+
+    @pyqtSlot()
+    def clearLivePlot(self):
+        self._live_plot_data = {field: [] for field in self._live_plot_fields}
+        self._live_plot_tick = 0
+        for curve in self._live_plot_curves.values():
+            curve.setData([], [])
+
     @pyqtSlot(zss.Robot_Status)
     def paint_single_info(self,info):
         if self.initFinish:
+            self._latest_status = info
             # Base panel background by team color.
             if info.team == 1:
                 team = "蓝"
@@ -993,9 +1021,11 @@ class InfoViewer(QQuickPaintedItem):
                 angle_z_str="{:.3f}".format(info.imu_data[10])
                 angle_y_str = "{:.3f}".format(info.imu_data[9])
                 angle_x_str = "{:.3f}".format(info.imu_data[8])
-                w_x_str="{:.3f}".format(info.imu_data[4])
-                w_y_str = "{:.3f}".format(info.imu_data[5])
                 w_z_str = "{:.3f}".format(info.imu_data[6])
+                odom_vx_str = "{:.3f}".format(info.real_pose[1] if len(info.real_pose) > 1 else 0.0)
+                odom_vy_str = "{:.3f}".format(info.real_pose[3] if len(info.real_pose) > 3 else 0.0)
+                w_x_str = odom_vx_str
+                w_y_str = odom_vy_str
                 wheel0_str="{:.0f}".format(info.wheel_encoder[0])
                 wheel1_str = "{:.0f}".format(info.wheel_encoder[1])
                 wheel2_str = "{:.0f}".format(info.wheel_encoder[2])
@@ -1055,6 +1085,9 @@ class InfoViewer(QQuickPaintedItem):
                     (13, "Y 轴角速度 " + w_y_str, QColor(10, 10, 10), row_bg),
                     (14, "Z 轴加速度 " + w_z_str, QColor(10, 10, 10), row_bg),
                 ]
+
+                rows[12] = (12, "Odom Vx(m/s) " + odom_vx_str, QColor(10, 10, 10), row_bg)
+                rows[13] = (13, "Odom Vy(m/s) " + odom_vy_str, QColor(10, 10, 10), row_bg)
 
                 for idx, content, text_color, bg_color in rows:
                     draw_info_row(idx, content, text_color, bg_color)

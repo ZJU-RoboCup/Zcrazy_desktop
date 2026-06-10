@@ -169,6 +169,11 @@ Rectangle{
             ZText{ text:" " }
             ZText{ text:qsTr("Shoot [E]") }
             Button{ text:(parent.shoot? qsTr("true") : qsTr("false")) ;width:parent.itemWidth
+                background: Rectangle {
+                    color: crazyShow.shoot ? "#e53935" : "#f2f2f2"
+                    border.color: "#a8a8a8"
+                    radius: 2
+                }
                 onClicked: { parent.shoot = !parent.shoot; }
             }
 
@@ -308,6 +313,14 @@ Rectangle{
                     trajectoryPopup.open();
                 }
             }
+            ZText{ text:qsTr("Plot") }
+            Button{ text:qsTr("Open") ;width:parent.itemWidth
+                onClicked: {
+                    livePlotPopup.open();
+                }
+            }
+            ZText{ text:" " }
+            ZText{ text:" " }
 
             //ZText{ text:qsTr("testSpeed "+parent.textV)  }
 
@@ -594,6 +607,98 @@ Rectangle{
         }
     }
     //最下面的Start按钮
+    Popup {
+        id: livePlotPopup
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(20, (radioRectangle.width - width) / 2)
+        y: 64
+        width: Math.min(radioRectangle.width - 40, 520)
+        height: 430
+        padding: 0
+
+        function selectedFields() {
+            var fields = [];
+            if (plotOdomVx.checked) fields.push("odom_vx");
+            if (plotOdomVy.checked) fields.push("odom_vy");
+            if (plotOmegaZ.checked) fields.push("omega_z");
+            if (plotAngleZ.checked) fields.push("angle_z");
+            if (plotWheel0.checked) fields.push("wheel0");
+            if (plotWheel1.checked) fields.push("wheel1");
+            if (plotWheel2.checked) fields.push("wheel2");
+            if (plotWheel3.checked) fields.push("wheel3");
+            if (plotBattery.checked) fields.push("battery");
+            if (plotCap.checked) fields.push("capacitance");
+            return fields.join(",");
+        }
+
+        background: Rectangle {
+            color: "#f6f6f6"
+            border.color: "#9a9a9a"
+            radius: 6
+        }
+
+        contentItem: Rectangle {
+            color: "transparent"
+            Column {
+                anchors.fill: parent
+                anchors.margins: 14
+                spacing: 10
+
+                Row {
+                    width: parent.width
+                    spacing: 10
+                    Text { text: qsTr("Live Plot"); font.pixelSize: 22; font.bold: true; width: parent.width - 90 }
+                    Button { text: qsTr("Close"); width: 80; onClicked: livePlotPopup.close() }
+                }
+
+                Grid {
+                    columns: 2
+                    columnSpacing: 24
+                    rowSpacing: 8
+                    width: parent.width
+
+                    CheckBox { id: plotOdomVx; text: qsTr("Odom Vx(m/s)"); checked: true; width: 220 }
+                    CheckBox { id: plotOdomVy; text: qsTr("Odom Vy(m/s)"); checked: true; width: 220 }
+                    CheckBox { id: plotOmegaZ; text: qsTr("IMU Omega Z"); checked: false; width: 220 }
+                    CheckBox { id: plotAngleZ; text: qsTr("IMU Angle Z"); checked: false; width: 220 }
+                    CheckBox { id: plotWheel0; text: qsTr("Wheel 0"); checked: false; width: 220 }
+                    CheckBox { id: plotWheel1; text: qsTr("Wheel 1"); checked: false; width: 220 }
+                    CheckBox { id: plotWheel2; text: qsTr("Wheel 2"); checked: false; width: 220 }
+                    CheckBox { id: plotWheel3; text: qsTr("Wheel 3"); checked: false; width: 220 }
+                    CheckBox { id: plotBattery; text: qsTr("Battery(V)"); checked: false; width: 220 }
+                    CheckBox { id: plotCap; text: qsTr("Capacitance(V)"); checked: false; width: 220 }
+                }
+
+                Row {
+                    spacing: 10
+                    Button {
+                        text: qsTr("Start")
+                        width: 110
+                        onClicked: {
+                            radioRectangle.cmdSender.startLivePlot(livePlotPopup.selectedFields());
+                        }
+                    }
+                    Button {
+                        text: qsTr("Stop")
+                        width: 110
+                        onClicked: {
+                            radioRectangle.cmdSender.stopLivePlot();
+                        }
+                    }
+                    Button {
+                        text: qsTr("Clear")
+                        width: 110
+                        onClicked: {
+                            radioRectangle.cmdSender.clearLivePlot();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Popup {
         id: trajectoryPopup
         modal: true
