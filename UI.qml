@@ -49,6 +49,15 @@ Rectangle{
             property int dribbleLevel : 10;//DribLevel
             property int dribbleVelocity : -50;//DribVel [turns/s]
             property int dribbleTorqueMilli : 100;//DribTorque [mNm]
+            property double paramVxAcc : 7.0;
+            property double paramVyAcc : 7.0;
+            property double paramVxJerk : 1000.0;
+            property double paramVyJerk : 1000.0;
+            property double paramVxDec : 10.0;
+            property double paramVyDec : 10.0;
+            property double paramYawVel : 25.0;
+            property double paramYawAcc : 40.0;
+            property double paramYawJerk : 200.0;
             property int rushSpeed : 200;//RushSpeed
 
             property int power : 20;//KickPower
@@ -193,9 +202,12 @@ Rectangle{
             //DribLevel:(0, dribbleMaxLevel)
             SpinBox{ editable:true; from:0; to:crazyShow.dribbleMaxLevel; value:parent.dribbleLevel;width:parent.itemWidth
                 onValueModified:{parent.dribbleLevel = value;}}
-            ZText{ text:qsTr("DribVel (turn/s)")  }
-            SpinBox{ editable:true; from:-crazyShow.dribbleVelocityMax; to:crazyShow.dribbleVelocityMax; value:parent.dribbleVelocity;width:parent.itemWidth
-                onValueModified:{parent.dribbleVelocity = value;}}
+            ZText{ text:qsTr("Parameter")  }
+            Button{ text:qsTr("Open") ;width:parent.itemWidth
+                onClicked: {
+                    parameterPopup.open();
+                }
+            }
             ZText{ text:qsTr("Rush [G]")  }
             Button{ text:(parent.rush ? qsTr("true") : qsTr("false")) ;width:parent.itemWidth;
                 onClicked: {
@@ -207,9 +219,8 @@ Rectangle{
             //RushSpeed:(0, m_VEL)
             SpinBox{ editable:true; from:0; to:crazyShow.m_VEL; value:parent.rushSpeed;width:parent.itemWidth
                 onValueModified:{parent.rushSpeed = value;}}
-            ZText{ text:qsTr("DribTorque (mNm)")  }
-            SpinBox{ editable:true; from:-crazyShow.dribbleTorqueMilliMax; to:crazyShow.dribbleTorqueMilliMax; value:parent.dribbleTorqueMilli;width:parent.itemWidth
-                onValueModified:{parent.dribbleTorqueMilli = value;}}
+            ZText{ text:" " }
+            ZText{ text:" " }
             ZText{ text:qsTr("test_dribble [B]")  }
             Button{ text:(parent.test_dribble ? qsTr("true") : qsTr("false")) ;width:parent.itemWidth;
                 onClicked: {
@@ -608,6 +619,261 @@ Rectangle{
     }
     //最下面的Start按钮
     Popup {
+        id: parameterPopup
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        x: Math.max(20, (radioRectangle.width - width) / 2)
+        y: 56
+        width: Math.min(radioRectangle.width - 40, 900)
+        height: Math.min(radioRectangle.height - 70, 640)
+        padding: 0
+        property string applyStatusValue: ""
+
+        function formatParam(value, digits) {
+            var numberValue = Number(value);
+            if (!isFinite(numberValue)) {
+                return "--";
+            }
+            return numberValue.toFixed(digits);
+        }
+
+        function scaledText(value, scale, digits, locale) {
+            return Number(value / scale).toLocaleString(locale, "f", digits);
+        }
+
+        function scaledValue(text, scale, locale) {
+            return Math.round(Number.fromLocaleString(locale, text) * scale);
+        }
+
+        function applyParameterLimits() {
+            radioRectangle.cmdSender.updateParameterLimits(
+                crazyShow.paramVxAcc,
+                crazyShow.paramVyAcc,
+                crazyShow.paramVxJerk,
+                crazyShow.paramVyJerk,
+                crazyShow.paramVxDec,
+                crazyShow.paramVyDec,
+                crazyShow.paramYawVel,
+                crazyShow.paramYawAcc,
+                crazyShow.paramYawJerk
+            );
+            applyStatusValue = "Applied";
+        }
+
+        function refreshParameterFeedback() {
+            var params = {};
+            try {
+                params = JSON.parse(radioRectangle.cmdSender.parameterSummaryJson());
+            } catch (error) {
+                params = {};
+            }
+            paramVxAcc.text = formatParam(params.vx_acc, 3);
+            paramVyAcc.text = formatParam(params.vy_acc, 3);
+            paramVxJerk.text = formatParam(params.vx_jerk, 3);
+            paramVyJerk.text = formatParam(params.vy_jerk, 3);
+            paramVxDec.text = formatParam(params.vx_dec, 3);
+            paramVyDec.text = formatParam(params.vy_dec, 3);
+            paramYawVel.text = formatParam(params.yaw_vel, 3);
+            paramYawAcc.text = formatParam(params.yaw_acc, 3);
+            paramYawJerk.text = formatParam(params.yaw_jerk, 3);
+        }
+
+        onOpened: refreshParameterFeedback()
+
+        Timer {
+            interval: 200
+            running: parameterPopup.visible
+            repeat: true
+            onTriggered: parameterPopup.refreshParameterFeedback()
+        }
+
+        background: Rectangle {
+            color: "#f6f6f6"
+            border.color: "#9a9a9a"
+            radius: 6
+        }
+
+        contentItem: Rectangle {
+            color: "transparent"
+            ScrollView {
+                anchors.fill: parent
+                clip: true
+                contentWidth: parameterPopup.width
+
+                Item {
+                    width: parameterPopup.width
+                    height: parameterColumn.height + 28
+
+            Column {
+                id: parameterColumn
+                x: 14
+                y: 14
+                width: parent.width - 28
+                spacing: 12
+
+                Row {
+                    width: parent.width
+                    spacing: 10
+                    Text { text: qsTr("Parameter"); font.pixelSize: 22; font.bold: true; width: parent.width - 90 }
+                    Button { text: qsTr("Close"); width: 80; onClicked: parameterPopup.close() }
+                }
+
+                Grid {
+                    columns: 2
+                    columnSpacing: 16
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("DribVel (turn/s)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: 230 }
+                    SpinBox {
+                        editable: true
+                        from: -crazyShow.dribbleVelocityMax
+                        to: crazyShow.dribbleVelocityMax
+                        value: crazyShow.dribbleVelocity
+                        width: 180
+                        onValueModified: { crazyShow.dribbleVelocity = value; }
+                    }
+
+                    Text { text: qsTr("DribTorque (mNm)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: 230 }
+                    SpinBox {
+                        editable: true
+                        from: -crazyShow.dribbleTorqueMilliMax
+                        to: crazyShow.dribbleTorqueMilliMax
+                        value: crazyShow.dribbleTorqueMilli
+                        width: 180
+                        onValueModified: { crazyShow.dribbleTorqueMilli = value; }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
+                Text { text: qsTr("Motion Limit Command"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: 4
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Vx Acc(m/s^2)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramVxAcc * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVxAcc = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Acc(m/s^2)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramVyAcc * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVyAcc = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Vx Jerk(m/s^3)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 2000000; value: Math.round(crazyShow.paramVxJerk * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVxJerk = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Jerk(m/s^3)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 2000000; value: Math.round(crazyShow.paramVyJerk * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVyJerk = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Vx Dec(m/s^2)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramVxDec * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVxDec = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Dec(m/s^2)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramVyDec * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramVyDec = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Yaw Vel(rad/s)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramYawVel * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawVel = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Yaw Acc(rad/s^2)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 50000; value: Math.round(crazyShow.paramYawAcc * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawAcc = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Yaw Jerk(rad/s^3)"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 1000000; value: Math.round(crazyShow.paramYawJerk * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawJerk = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Row {
+                        width: 292
+                        height: 34
+                        spacing: 10
+                        Button { text: qsTr("Apply"); width: 110; onClicked: parameterPopup.applyParameterLimits() }
+                        Text { text: parameterPopup.applyStatusValue; font.pixelSize: 15; height: 34; verticalAlignment: Text.AlignVCenter }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
+                Text { text: qsTr("Motion Limit Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: 4
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Vx Acc(m/s^2)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVxAcc; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Acc(m/s^2)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVyAcc; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Vx Jerk(m/s^3)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVxJerk; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Jerk(m/s^3)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVyJerk; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Vx Dec(m/s^2)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVxDec; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Dec(m/s^2)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramVyDec; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Yaw Vel(rad/s)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawVel; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Yaw Acc(rad/s^2)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawAcc; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Yaw Jerk(rad/s^3)"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawJerk; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: " "; width: 170; height: 28 }
+                    Text { text: " "; width: 110; height: 28 }
+                }
+            }
+                }
+            }
+        }
+    }
+
+    Popup {
         id: livePlotPopup
         modal: true
         focus: true
@@ -659,7 +925,7 @@ Rectangle{
                     rowSpacing: 8
                     width: parent.width
 
-                    CheckBox { id: plotOdomVx; text: qsTr("Odom Vx(m/s)"); checked: true; width: 220 }
+                    CheckBox { id: plotOdomVx; text: qsTr("   Vx(m/s)"); checked: true; width: 220 }
                     CheckBox { id: plotOdomVy; text: qsTr("Odom Vy(m/s)"); checked: true; width: 220 }
                     CheckBox { id: plotOmegaZ; text: qsTr("IMU Omega Z"); checked: false; width: 220 }
                     CheckBox { id: plotAngleZ; text: qsTr("IMU Angle Z"); checked: false; width: 220 }

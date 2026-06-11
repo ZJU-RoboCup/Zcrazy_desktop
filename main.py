@@ -141,6 +141,7 @@ class CmdSender:
         self.pb_data.dribble_spin = 0
         self.pb_data.dribble_velocity = int(-50.0 * 100.0)
         self.pb_data.dribble_torque_ff = int(0.1 * 1000.0)
+        self.setParameterLimits(7.0, 7.0, 1000.0, 1000.0, 10.0, 10.0, 25.0, 40.0, 200.0)
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(0*1000)
         self.pb_data.cmd_vel.velocity_y = int(0*1000)
@@ -162,6 +163,17 @@ class CmdSender:
         self._trajectory_segment_started = 0.0
         self._trajectory_loop_remaining = 0
         pass
+
+    def setParameterLimits(self, vx_acc, vy_acc, vx_jerk, vy_jerk, vx_dec, vy_dec, yaw_vel, yaw_acc, yaw_jerk):
+        self.pb_data.xy_max_acc_x = int(round(vx_acc * 1000.0))
+        self.pb_data.xy_max_acc_y = int(round(vy_acc * 1000.0))
+        self.pb_data.xy_max_jerk_x = int(round(vx_jerk * 1000.0))
+        self.pb_data.xy_max_jerk_y = int(round(vy_jerk * 1000.0))
+        self.pb_data.xy_max_dec_x = int(round(vx_dec * 1000.0))
+        self.pb_data.xy_max_dec_y = int(round(vy_dec * 1000.0))
+        self.pb_data.yaw_max_vel = int(round(yaw_vel * 1000.0))
+        self.pb_data.yaw_max_acc = int(round(yaw_acc * 1000.0))
+        self.pb_data.yaw_max_jerk = int(round(yaw_jerk * 1000.0))
 
     def _apply_velocity(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
         self.pb_data.cmd_vel.use_imu = False
@@ -983,6 +995,38 @@ class InfoViewer(QQuickPaintedItem):
         self._live_plot_tick = 0
         for curve in self._live_plot_curves.values():
             curve.setData([], [])
+
+    @pyqtSlot(result=str)
+    def parameterSummaryJson(self):
+        info = self._latest_status
+
+        def pose_value(index, component):
+            if info is None:
+                return 0.0
+            try:
+                poses = info.odom.poses
+                if len(poses) <= index:
+                    return 0.0
+                return float(getattr(poses[index], component))
+            except Exception:
+                return 0.0
+
+        data = {
+            "vx_acc": pose_value(1, "x"),
+            "vy_acc": pose_value(1, "y"),
+            "vx_jerk": pose_value(2, "x"),
+            "vy_jerk": pose_value(2, "y"),
+            "vx_dec": pose_value(3, "x"),
+            "vy_dec": pose_value(3, "y"),
+            "yaw_vel": pose_value(0, "w"),
+            "yaw_acc": pose_value(1, "w"),
+            "yaw_jerk": pose_value(2, "w"),
+        }
+        return json.dumps(data)
+
+    @pyqtSlot(float, float, float, float, float, float, float, float, float)
+    def updateParameterLimits(self, vx_acc, vy_acc, vx_jerk, vy_jerk, vx_dec, vy_dec, yaw_vel, yaw_acc, yaw_jerk):
+        self.cmdSender.setParameterLimits(vx_acc, vy_acc, vx_jerk, vy_jerk, vx_dec, vy_dec, yaw_vel, yaw_acc, yaw_jerk)
 
     @pyqtSlot(zss.Robot_Status)
     def paint_single_info(self,info):
