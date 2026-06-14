@@ -142,6 +142,7 @@ class CmdSender:
         self.pb_data.dribble_velocity = int(-50.0 * 100.0)
         self.pb_data.dribble_torque_ff = int(0.1 * 1000.0)
         self.setParameterLimits(7.0, 7.0, 1000.0, 1000.0, 10.0, 10.0, 25.0, 40.0, 200.0)
+        self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(0*1000)
         self.pb_data.cmd_vel.velocity_y = int(0*1000)
@@ -316,6 +317,7 @@ class CmdSender:
         self.pb_data.dribble_spin = int(ctrl)
         self.pb_data.dribble_velocity = int(round(dribble_velocity * 100.0))
         self.pb_data.dribble_torque_ff = int(round(dribble_torque_ff * 1000.0))
+        self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(velX*1000.0)
         self.pb_data.cmd_vel.velocity_y = int(velY*1000.0)
@@ -389,6 +391,7 @@ class CmdSender:
                     plotData[i+len(fdbNeedPlotName)] = eval(refNeedPlotName[i])
               
             self.pb_data.robot_id = id
+            self.pb_data.vision_source = 2
             # print("sendIp: ",info.ip)
             # Serialize    
             # print("send",self.pb_data.need_change_team, self.pb_data.need_change_id)

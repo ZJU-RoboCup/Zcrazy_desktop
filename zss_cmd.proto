@@ -40,7 +40,9 @@ message Robot_Status {
     sint32 battery = 6;
     // capacitance
     sint32 capacitance = 7;
-    // odom of imu
+    // debug odom/motion-limit report from STM32:
+    // poses[0] = max velocity (x,y,w), poses[1] = max acceleration (x,y,w),
+    // poses[2] = max jerk (x,y,w), poses[3] = max deceleration (x,y,0).
     Odom odom = 8;
     // wheel encoder value
     repeated sint32 wheel_encoder = 9;
@@ -122,6 +124,31 @@ message Robot_Command {
     sint32 yaw_max_vel = 28;
     sint32 yaw_max_acc = 29;
     sint32 yaw_max_jerk = 30;
+    // unfiltered vision velocity in robot local frame, mm/s
+    sint32 raw_vision_vel_x = 31;
+    sint32 raw_vision_vel_y = 32;
+    // 1: odometry only, 2: wheel speed + odometry, 3: vision velocity + odometry
+    sint32 vision_source = 33;
+}
+
+message Robots_Command_Sim {
+    repeated Robot_Command_Sim command = 1;
+    // delay * 0.1ms
+    optional int32 delay = 2;
+}
+
+message Robot_Command_Sim {
+    // The unique ID of the robot, as identified by SSL-Vision.
+    int32 robot_id = 1;
+    Robot_Command.KickMode kick_mode = 2;
+    // use for sim / just store for debug
+    // if kick_mode == KICK, power means kick speed m/s
+    // if kick_mode == CHIP, power means chip distance m
+    float desire_power = 3;
+    // dribble PWM -1 ~ 1
+    sint32 dribble_spin = 4;
+    Robot_Command.CmdType cmd_type = 5;
+    CmdVel cmd_vel = 6;
 }
 
 message Robot_Command_Mini{
