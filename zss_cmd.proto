@@ -129,6 +129,8 @@ message Robot_Command {
     sint32 raw_vision_vel_y = 32;
     // 1: odometry only, 2: wheel speed + odometry, 3: vision velocity + odometry
     sint32 vision_source = 33;
+    // 1: pure torque, 2: pure speed, 3: torque + speed hybrid
+    sint32 dribble_mode = 34;
 }
 
 message Robots_Command_Sim {

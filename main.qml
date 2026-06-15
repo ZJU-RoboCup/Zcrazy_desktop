@@ -36,7 +36,7 @@ ApplicationWindow {
     }
     Rectangle{
         id:infoViewerRect
-        width:650
+        width: Math.max(520, Math.min(650, parent.width * 0.36))
         height:parent.height
         anchors.right:parent.right
         color:"#333333"

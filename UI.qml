@@ -12,7 +12,7 @@ Rectangle{
     //下面大的Box
     ZGroupBox{
         title : qsTr("Control Panel");
-        width:parent.width - 15;
+        width:parent.width - 8;
         anchors.top:parent.top;
         anchors.topMargin:8;
         // anchors.bottom:parent.bottom;
@@ -25,8 +25,9 @@ Rectangle{
             verticalItemAlignment: Grid.AlignVCenter;
             horizontalItemAlignment: Grid.AlignLeft;
             anchors.horizontalCenter: parent.horizontalCenter;
+            width: parent.width - 20;
             columnSpacing: 10;
-            rowSpacing: 5;
+            rowSpacing: 4;
             property int robotID : 0;//Robot
             property int velX : 0;//Vx
             property int velY : 0;//Vy
@@ -49,6 +50,7 @@ Rectangle{
             property int dribbleLevel : 10;//DribLevel
             property int dribbleVelocity : -50;//DribVel [turns/s]
             property int dribbleTorqueMilli : 100;//DribTorque [mNm]
+            property int dribbleMode : 3;//1 torque, 2 speed, 3 hybrid
             property double paramVxAcc : 7.0;
             property double paramVyAcc : 7.0;
             property double paramVxJerk : 1000.0;
@@ -79,9 +81,9 @@ Rectangle{
             // UI uses mm/s and rad/s; convert to m/s and rad/s for backend.
             property double r_VEL_RATIO : 0.001;
             property double r_VELR_RATIO : 1.0;
-            property double r_DRIBBLE_RATIO : 0.1;
+            property double r_DRIBBLE_RATIO : 1.0;
             property double r_KICK_RATIO : 50;
-            property int itemWidth : (parent.width-columnSpacing*(columns))/columns;
+            property int itemWidth : Math.floor((width - columnSpacing * (columns - 1)) / columns);
             property string textV : qsTr("(mm/s)");
             property string textW : qsTr("(rad/s)");
             property string textP : qsTr("(50us)");
@@ -103,8 +105,12 @@ Rectangle{
             //有用吗？
             Button{ text:qsTr("[Space]") ;width:parent.itemWidth
             }
-            ZText{ text:" " }
-            ZText{ text:" " }
+            ZText{ text:qsTr("Parameter")  }
+            Button{ text:qsTr("Open") ;width:parent.itemWidth
+                onClicked: {
+                    parameterPopup.open();
+                }
+            }
             ZText{ text:qsTr("Vx [W/S]")  }
             //Vx:(-m_VEL, m_VEL)
             SpinBox{ editable:true; from:-crazyShow.m_VEL; to:crazyShow.m_VEL; value:parent.velX;width:parent.itemWidth
@@ -170,12 +176,6 @@ Rectangle{
                     }
                     }}
 
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
             ZText{ text:qsTr("Shoot [E]") }
             Button{ text:(parent.shoot? qsTr("true") : qsTr("false")) ;width:parent.itemWidth
                 background: Rectangle {
@@ -202,12 +202,9 @@ Rectangle{
             //DribLevel:(0, dribbleMaxLevel)
             SpinBox{ editable:true; from:0; to:crazyShow.dribbleMaxLevel; value:parent.dribbleLevel;width:parent.itemWidth
                 onValueModified:{parent.dribbleLevel = value;}}
-            ZText{ text:qsTr("Parameter")  }
-            Button{ text:qsTr("Open") ;width:parent.itemWidth
-                onClicked: {
-                    parameterPopup.open();
-                }
-            }
+            ZText{ text:qsTr("DribMode")  }
+            SpinBox{ editable:true; from:1; to:3; value:parent.dribbleMode;width:parent.itemWidth
+                onValueModified:{parent.dribbleMode = value;}}
             ZText{ text:qsTr("Rush [G]")  }
             Button{ text:(parent.rush ? qsTr("true") : qsTr("false")) ;width:parent.itemWidth;
                 onClicked: {
@@ -278,11 +275,6 @@ Rectangle{
                     }
             }
 
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
-            ZText{ text:" " }
-
             ZText{ text:qsTr("team new")  }
             SpinBox{ editable:true; from:1; to:2; value:parent.team_new; width:parent.itemWidth
                 onValueModified:{parent.team_new = value;}}
@@ -291,18 +283,21 @@ Rectangle{
             SpinBox{ editable:true; from:0; to:15; value:parent.id_new; width:parent.itemWidth
                 onValueModified:{parent.id_new = value;}}
 
-            Button{ text:qsTr("change team") ;width:parent.itemWidth
+            ZText{ text:qsTr("Change Team") }
+            Button{ text:qsTr("change") ;width:parent.itemWidth
                 onClicked: {
                     radioRectangle.cmdSender.changeTeam(parent.team_new);
                 }
             }
 
-            Button{ text:qsTr("change id") ;width:parent.itemWidth
+            ZText{ text:qsTr("Change ID") }
+            Button{ text:qsTr("change") ;width:parent.itemWidth
                 onClicked: {
                     radioRectangle.cmdSender.changeId(parent.id_new);
                 }
             }
 
+            ZText{ text:qsTr("All Blue") }
             Button{ text:qsTr("all -> blue") ;width:parent.itemWidth
                 onClicked: {
                     // change all known robots to blue (team 1)
@@ -310,6 +305,7 @@ Rectangle{
                 }
             }
 
+            ZText{ text:qsTr("All Yellow") }
             Button{ text:qsTr("all -> yellow") ;width:parent.itemWidth
                 onClicked: {
                     // change all known robots to yellow (team 2)
@@ -330,9 +326,6 @@ Rectangle{
                     livePlotPopup.open();
                 }
             }
-            ZText{ text:" " }
-            ZText{ text:" " }
-
             //ZText{ text:qsTr("testSpeed "+parent.textV)  }
 
             //键盘响应实现
@@ -504,6 +497,7 @@ Rectangle{
                     crazyShow.angle,
                     crazyShow.dribbleVelocity,
                     crazyShow.dribbleTorqueMilli / 1000.0,
+                    crazyShow.dribbleMode,
                     crazyShow.control_all,
                     crazyShow.control_all_which_team
                 );
@@ -1320,10 +1314,10 @@ Rectangle{
     Rectangle {
         id: onlineCountBadge
         z: 999
-        anchors.left: parent.left
-        anchors.bottom: colorImage.top
-        anchors.bottomMargin: 8
-        anchors.leftMargin: 12
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 20
+        anchors.bottomMargin: 12
         radius: 8
         color: "#333333"  
         opacity: 0.85

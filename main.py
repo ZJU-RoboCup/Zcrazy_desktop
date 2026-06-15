@@ -141,6 +141,7 @@ class CmdSender:
         self.pb_data.dribble_spin = 0
         self.pb_data.dribble_velocity = int(-50.0 * 100.0)
         self.pb_data.dribble_torque_ff = int(0.1 * 1000.0)
+        self.pb_data.dribble_mode = 3
         self.setParameterLimits(7.0, 7.0, 1000.0, 1000.0, 10.0, 10.0, 25.0, 40.0, 200.0)
         self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
@@ -307,7 +308,7 @@ class CmdSender:
         self._apply_velocity(segment["vx"], segment["vy"], segment["vr"])
     # updateCommandParams(int robotID,double velX,double velY,double velR,double ctrl,bool mode,bool shoot,double power,bool use_imu,double angle,double dribble_velocity,double dribble_torque_ff)
     # 在UI.qml中调用来传递控制指令
-    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff):
+    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff,dribble_mode):
         # self.pb_data = zss.Robot_Command()
         self.pb_data.robot_id = -1
         self.pb_data.kick_mode = zss.Robot_Command.KickMode.NONE if not shoot else (zss.Robot_Command.KickMode.CHIP if mode else zss.Robot_Command.KickMode.KICK)
@@ -317,6 +318,7 @@ class CmdSender:
         self.pb_data.dribble_spin = int(ctrl)
         self.pb_data.dribble_velocity = int(round(dribble_velocity * 100.0))
         self.pb_data.dribble_torque_ff = int(round(dribble_torque_ff * 1000.0))
+        self.pb_data.dribble_mode = max(1, min(3, int(dribble_mode)))
         self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(velX*1000.0)
@@ -391,6 +393,7 @@ class CmdSender:
                     plotData[i+len(fdbNeedPlotName)] = eval(refNeedPlotName[i])
               
             self.pb_data.robot_id = id
+            self.pb_data.dribble_mode = max(1, min(3, int(self.pb_data.dribble_mode or 3)))
             self.pb_data.vision_source = 2
             # print("sendIp: ",info.ip)
             # Serialize    
@@ -866,9 +869,9 @@ class InfoViewer(QQuickPaintedItem):
         return self.width()*(v)
     def _h(self,n,v):
         return self.height()/self.MAX_PLAYER*(v)
-    @pyqtSlot(int,float,float,float,float,bool,bool,float,bool,float,float,float,bool,bool)
-    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff,control_all,control_all_which_team):
-        self.cmdSender.updateCommandParams(robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff)
+    @pyqtSlot(int,float,float,float,float,bool,bool,float,bool,float,float,float,int,bool,bool)
+    def updateCommandParams(self,robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff,dribble_mode,control_all,control_all_which_team):
+        self.cmdSender.updateCommandParams(robotID,velX,velY,velR,ctrl,mode,shoot,power,use_imu,angle,dribble_velocity,dribble_torque_ff,dribble_mode)
         self.control_all = control_all
         self.control_all_which_team = control_all_which_team
         
