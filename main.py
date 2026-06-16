@@ -62,45 +62,38 @@ TRAJECTORY_HISTORY_FILE = "trajectory_history.json"
 
 
 def percent_from_raw_battery(raw10x: int) -> int:
-    """Match percentFromRawBattery() in RobotStatusModel.cpp.
+    """Convert 6S battery voltage to display percent.
 
-    raw10x: battery total voltage in 10x volts (e.g. 151 -> 15.1V)
+    raw10x: battery total voltage in 10x volts (e.g. 222 -> 22.2V)
     returns: 0..100
     """
     if raw10x <= 0:
         return 0
     volts = raw10x / 10.0
-    # Infer cell count: prefer 4S, otherwise 3S (avoid misclassifying 3S full 12.6V as 4S)
-    cells = 4 if volts >= 13.0 else 3
-    per_cell = volts / cells
 
-    v_tab = [
-        4.20, 4.15, 4.10, 4.05, 4.00, 3.95, 3.92, 3.88, 3.84,
-        3.80, 3.78, 3.75, 3.72, 3.70, 3.68, 3.65, 3.62, 3.55, 3.30,
-    ]
-    p_tab = [
-        100, 95, 90, 85, 80, 75, 70, 60, 50,
-        45, 40, 35, 30, 25, 20, 15, 10, 5, 0,
+    voltage_percent_points = [
+        (25.2, 100),
+        (24.1, 80),
+        (23.0, 50),
+        (22.4, 20),
+        (21.6, 5),
+        (21.0, 0),
     ]
 
-    if per_cell >= v_tab[0]:
+    if volts >= voltage_percent_points[0][0]:
         return 100
-    if per_cell <= v_tab[-1]:
+    if volts <= voltage_percent_points[-1][0]:
         return 0
 
-    for i in range(len(v_tab) - 1):
-        v_high = v_tab[i]
-        v_low = v_tab[i + 1]
-        if v_low <= per_cell <= v_high:
-            p_high = p_tab[i]
-            p_low = p_tab[i + 1]
-            t = (per_cell - v_low) / (v_high - v_low)
-            p = int(round(p_low + t * (p_high - p_low)))
-            return max(0, min(100, p))
+    for i in range(len(voltage_percent_points) - 1):
+        v_high, p_high = voltage_percent_points[i]
+        v_low, p_low = voltage_percent_points[i + 1]
+        if v_low <= volts <= v_high:
+            t = (volts - v_low) / (v_high - v_low)
+            p = p_low + t * (p_high - p_low)
+            return max(0, min(100, int(round(p))))
 
-    # Fallback (should not reach)
-    p = int(round((per_cell - 3.30) / (4.20 - 3.30) * 100.0))
-    return max(0, min(100, p))
+    return 0
 
 
 def resource_path(rel_path: str) -> str:
