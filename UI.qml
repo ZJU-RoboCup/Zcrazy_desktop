@@ -9,7 +9,7 @@ Rectangle{
     id:radioRectangle;
     property var cmdSender;
 
-    //下面大的Box
+    //涓嬮潰澶х殑Box
     ZGroupBox{
         title : qsTr("Control Panel");
         width:parent.width - 8;
@@ -21,7 +21,7 @@ Rectangle{
         id : groupBox2;
         Grid{
             id : crazyShow;
-            columns: 6;//6列
+            columns: 6;
             verticalItemAlignment: Grid.AlignVCenter;
             horizontalItemAlignment: Grid.AlignLeft;
             anchors.horizontalCenter: parent.horizontalCenter;
@@ -49,7 +49,7 @@ Rectangle{
             property bool mode : false;//KickMode
             property int dribbleLevel : 10;//DribLevel
             property int dribbleVelocity : -50;//DribVel [turns/s]
-            property int dribbleTorqueMilli : 100;//DribTorque [mNm]
+            property int dribbleTorqueMilli : -50;//DribTorque [mNm]
             property int dribbleMode : 3;//1 torque, 2 speed, 3 hybrid
             property double paramVxAcc : 7.0;
             property double paramVyAcc : 7.0;
@@ -60,6 +60,12 @@ Rectangle{
             property double paramYawVel : 25.0;
             property double paramYawAcc : 40.0;
             property double paramYawJerk : 200.0;
+            property double paramPidKpX : 30.0;
+            property double paramPidKiX : 300.0;
+            property double paramPidKdX : 0.0;
+            property double paramPidKpY : 30.0;
+            property double paramPidKiY : 300.0;
+            property double paramPidKdY : 0.0;
             property int rushSpeed : 200;//RushSpeed
 
             property int power : 20;//KickPower
@@ -67,17 +73,16 @@ Rectangle{
             property int m_VELR : 80;//MaxVelR [rad/s]
             property int m_VEL : 8000//MaxVel (mm/s)
             property int velocityRMax : m_VELR;//MaxVelR [rad/s]
-            property int velocityMax : m_VEL;//最大速度
+            property int velocityMax : m_VEL;//鏈€澶ч€熷害
             property int m_angle :180;
-            property int angleMax : m_angle;//最大角度
-
-            property int dribbleMaxLevel : 30;//吸球最大等级
+            property int angleMax : m_angle;//鏈€澶ц搴?
+            property int dribbleMaxLevel : 30;//DribLevel max
             property int dribbleVelocityMax : 200;
             property int dribbleTorqueMilliMax : 1000;
             property double dribble_test_L : 98.72/1000.0;
             property double dribble_test_cos : 0.9725;
             property double dribble_test_sin : 0.2330;
-            property int kickPowerMax: 300;//最大踢球力量[50us]
+            property int kickPowerMax: 300;//鏈€澶ц涪鐞冨姏閲廩50us]
             // UI uses mm/s and rad/s; convert to m/s and rad/s for backend.
             property double r_VEL_RATIO : 0.001;
             property double r_VELR_RATIO : 1.0;
@@ -98,11 +103,11 @@ Rectangle{
             property bool control_all_which_team : false; // 0 for blue,1 for yellow
 
             ZText{ text:qsTr("Robot")  }
-            //最多12辆车
+            //鏈€澶?2杈嗚溅
             SpinBox{ editable:true; from:0; to:15; value:parent.robotID; width:parent.itemWidth
                 onValueModified:{parent.robotID = value}}
             ZText{ text:"Stop" }
-            //有用吗？
+            //鏈夌敤鍚楋紵
             Button{ text:qsTr("[Space]") ;width:parent.itemWidth
             }
             ZText{ text:qsTr("Parameter")  }
@@ -313,7 +318,7 @@ Rectangle{
                 }
             }
 
-            //角度pid
+            //瑙掑害pid
             ZText{ text:qsTr("Trajectory") }
             Button{ text:qsTr("Open") ;width:parent.itemWidth
                 onClicked: {
@@ -328,7 +333,7 @@ Rectangle{
             }
             //ZText{ text:qsTr("testSpeed "+parent.textV)  }
 
-            //键盘响应实现
+            //閿洏鍝嶅簲瀹炵幇
             Keys.onPressed: (event) => {getFocus(event);}
             function getFocus(event){
                 switch(event.key){
@@ -537,85 +542,103 @@ Rectangle{
                 return vel;
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"G";
                 onActivated:crazyShow.handleKeyboardEvent('g');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"A";
                 onActivated:crazyShow.handleKeyboardEvent('a');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"Up";
                 onActivated:crazyShow.handleKeyboardEvent('U');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"D"
                 onActivated:crazyShow.handleKeyboardEvent('d');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"W"
                 onActivated:crazyShow.handleKeyboardEvent('w');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"S"
                 onActivated:crazyShow.handleKeyboardEvent('s');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"Q"
                 onActivated:crazyShow.handleKeyboardEvent('q');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"E"
                 onActivated:crazyShow.handleKeyboardEvent('e');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"Left"
                 onActivated:crazyShow.handleKeyboardEvent('L');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"Right"
                 onActivated:crazyShow.handleKeyboardEvent('R');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"Space"
                 onActivated:crazyShow.handleKeyboardEvent('SPACE');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"B"
                 onActivated:crazyShow.handleKeyboardEvent('b');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"I"
                 onActivated:crazyShow.handleKeyboardEvent('i');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"P"
                 onActivated:crazyShow.handleKeyboardEvent('p');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"N"
                 onActivated:crazyShow.handleKeyboardEvent('N');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"M"
                 onActivated:crazyShow.handleKeyboardEvent('M');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"J"
                 onActivated:crazyShow.handleKeyboardEvent('j');
             }
             Shortcut{
+                context: Qt.ApplicationShortcut
                 sequence:"K"
                 onActivated:crazyShow.handleKeyboardEvent('k');
             }
             
         }
     }
-    //最下面的Start按钮
+    //鏈€涓嬮潰鐨凷tart鎸夐挳
     Popup {
         id: parameterPopup
-        modal: true
-        focus: true
+        modal: false
+        focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         x: Math.max(20, (radioRectangle.width - width) / 2)
         y: 56
@@ -655,6 +678,18 @@ Rectangle{
             applyStatusValue = "Applied";
         }
 
+        function applyChassisVelocityPid() {
+            radioRectangle.cmdSender.updateChassisVelocityPid(
+                crazyShow.paramPidKpX,
+                crazyShow.paramPidKiX,
+                crazyShow.paramPidKdX,
+                crazyShow.paramPidKpY,
+                crazyShow.paramPidKiY,
+                crazyShow.paramPidKdY
+            );
+            applyStatusValue = "Applied";
+        }
+
         function refreshParameterFeedback() {
             var params = {};
             try {
@@ -671,6 +706,12 @@ Rectangle{
             paramYawVel.text = formatParam(params.yaw_vel, 3);
             paramYawAcc.text = formatParam(params.yaw_acc, 3);
             paramYawJerk.text = formatParam(params.yaw_jerk, 3);
+            paramPidKpX.text = formatParam(params.pid_kp_x, 2);
+            paramPidKiX.text = formatParam(params.pid_ki_x, 2);
+            paramPidKdX.text = formatParam(params.pid_kd_x, 2);
+            paramPidKpY.text = formatParam(params.pid_kp_y, 2);
+            paramPidKiY.text = formatParam(params.pid_ki_y, 2);
+            paramPidKdY.text = formatParam(params.pid_kd_y, 2);
         }
 
         onOpened: refreshParameterFeedback()
@@ -828,6 +869,66 @@ Rectangle{
 
                 Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
 
+                Text { text: qsTr("Chassis Velocity PID Command"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: 4
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Vx Kp"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKpX * 100); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                        onValueModified: { crazyShow.paramPidKpX = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Kp"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKpY * 100); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                        onValueModified: { crazyShow.paramPidKpY = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Vx Ki"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKiX * 100); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                        onValueModified: { crazyShow.paramPidKiX = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Ki"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKiY * 100); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                        onValueModified: { crazyShow.paramPidKiY = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                    }
+
+                    Text { text: qsTr("Vx Kd"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKdX * 100); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                        onValueModified: { crazyShow.paramPidKdX = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Vy Kd"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    Row {
+                        width: 292; height: 34; spacing: 10
+                        SpinBox {
+                            editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramPidKdY * 100); width: 110
+                            textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 100, 2, locale); }
+                            valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 100, locale); }
+                            onValueModified: { crazyShow.paramPidKdY = value / 100.0; parameterPopup.applyStatusValue = ""; }
+                        }
+                        Button { text: qsTr("Apply PID"); width: 110; onClicked: parameterPopup.applyChassisVelocityPid() }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
                 Text { text: qsTr("Motion Limit Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
 
                 Grid {
@@ -861,6 +962,32 @@ Rectangle{
                     Text { text: " "; width: 170; height: 28 }
                     Text { text: " "; width: 110; height: 28 }
                 }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
+                Text { text: qsTr("Chassis Velocity PID Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: 4
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Vx Kp"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKpX; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Kp"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKpY; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Vx Ki"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKiX; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Ki"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKiY; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+
+                    Text { text: qsTr("Vx Kd"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKdX; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Vy Kd"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramPidKdY; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                }
             }
                 }
             }
@@ -869,8 +996,8 @@ Rectangle{
 
     Popup {
         id: livePlotPopup
-        modal: true
-        focus: true
+        modal: false
+        focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         x: Math.max(20, (radioRectangle.width - width) / 2)
         y: 64
@@ -961,8 +1088,8 @@ Rectangle{
 
     Popup {
         id: trajectoryPopup
-        modal: true
-        focus: true
+        modal: false
+        focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         x: Math.max(20, (radioRectangle.width - width) / 2)
         y: 24
@@ -1279,15 +1406,14 @@ Rectangle{
         anchors.rightMargin: 20;
         anchors.top:groupBox2.bottom;
         anchors.topMargin: 10;
-        // enabled : crazyConnect.ifConnected;//如果连接成功按钮才有效
         onClicked:{
             handleClickEvent();
         }
         function handleClickEvent(){
-            if(ifStarted){//若开始，定时器关闭
+            if(ifStarted){
                 infoViewer.plotStop();
                 timer.stop();
-            }else{//若未开始，定时器打开
+            }else{
                 infoViewer.plotStart();
                 timer.start();
             }

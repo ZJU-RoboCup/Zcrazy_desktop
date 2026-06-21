@@ -131,6 +131,13 @@ message Robot_Command {
     sint32 vision_source = 33;
     // 1: pure torque, 2: pure speed, 3: torque + speed hybrid
     sint32 dribble_mode = 34;
+    // Runtime chassis velocity PID gains, gain * 100
+    optional sint32 chassis_vel_pid_kp_x = 35;
+    optional sint32 chassis_vel_pid_ki_x = 36;
+    optional sint32 chassis_vel_pid_kd_x = 37;
+    optional sint32 chassis_vel_pid_kp_y = 38;
+    optional sint32 chassis_vel_pid_ki_y = 39;
+    optional sint32 chassis_vel_pid_kd_y = 40;
 }
 
 message Robots_Command_Sim {

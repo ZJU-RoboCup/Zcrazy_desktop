@@ -25,7 +25,7 @@ refNeedPlotName = []
 fdbPlotForward = "info."
 refPlotForward = "self.pb_data."
     
-needPlot = True
+needPlot = False
 # plotDataNum = 0
 # plotInitFinish = False
 
@@ -133,9 +133,10 @@ class CmdSender:
         self.pb_data.kick_discharge_time = 0
         self.pb_data.dribble_spin = 0
         self.pb_data.dribble_velocity = int(-50.0 * 100.0)
-        self.pb_data.dribble_torque_ff = int(0.1 * 1000.0)
+        self.pb_data.dribble_torque_ff = -50
         self.pb_data.dribble_mode = 3
         self.setParameterLimits(7.0, 7.0, 1000.0, 1000.0, 10.0, 10.0, 25.0, 40.0, 200.0)
+        self.setChassisVelocityPid(30.0, 300.0, 0.0, 30.0, 300.0, 0.0)
         self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(0*1000)
@@ -169,6 +170,14 @@ class CmdSender:
         self.pb_data.yaw_max_vel = int(round(yaw_vel * 1000.0))
         self.pb_data.yaw_max_acc = int(round(yaw_acc * 1000.0))
         self.pb_data.yaw_max_jerk = int(round(yaw_jerk * 1000.0))
+
+    def setChassisVelocityPid(self, kp_x, ki_x, kd_x, kp_y, ki_y, kd_y):
+        self.pb_data.chassis_vel_pid_kp_x = int(round(kp_x * 100.0))
+        self.pb_data.chassis_vel_pid_ki_x = int(round(ki_x * 100.0))
+        self.pb_data.chassis_vel_pid_kd_x = int(round(kd_x * 100.0))
+        self.pb_data.chassis_vel_pid_kp_y = int(round(kp_y * 100.0))
+        self.pb_data.chassis_vel_pid_ki_y = int(round(ki_y * 100.0))
+        self.pb_data.chassis_vel_pid_kd_y = int(round(kd_y * 100.0))
 
     def _apply_velocity(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
         self.pb_data.cmd_vel.use_imu = False
@@ -1020,12 +1029,22 @@ class InfoViewer(QQuickPaintedItem):
             "yaw_vel": pose_value(0, "w"),
             "yaw_acc": pose_value(1, "w"),
             "yaw_jerk": pose_value(2, "w"),
+            "pid_kp_x": pose_value(4, "x"),
+            "pid_ki_x": pose_value(4, "y"),
+            "pid_kd_x": pose_value(4, "w"),
+            "pid_kp_y": pose_value(5, "x"),
+            "pid_ki_y": pose_value(5, "y"),
+            "pid_kd_y": pose_value(5, "w"),
         }
         return json.dumps(data)
 
     @pyqtSlot(float, float, float, float, float, float, float, float, float)
     def updateParameterLimits(self, vx_acc, vy_acc, vx_jerk, vy_jerk, vx_dec, vy_dec, yaw_vel, yaw_acc, yaw_jerk):
         self.cmdSender.setParameterLimits(vx_acc, vy_acc, vx_jerk, vy_jerk, vx_dec, vy_dec, yaw_vel, yaw_acc, yaw_jerk)
+
+    @pyqtSlot(float, float, float, float, float, float)
+    def updateChassisVelocityPid(self, kp_x, ki_x, kd_x, kp_y, ki_y, kd_y):
+        self.cmdSender.setChassisVelocityPid(kp_x, ki_x, kd_x, kp_y, ki_y, kd_y)
 
     @pyqtSlot(zss.Robot_Status)
     def paint_single_info(self,info):
@@ -1454,76 +1473,17 @@ if __name__ == '__main__':
     engine = QQmlApplicationEngine()
     qmlRegisterType(InfoViewer, 'ZSS', 1, 0, 'InfoViewer')
     
-    needPlotTmp = True
-        
-    with open(resource_path('zcrazy.txt'),'r') as file:
-        for line in file:
-            if needPlotTmp and line.strip() != 'true:':
-                needPlotTmp = False  
-                needPlot = False    
-                break             
-            else:
-                needPlotTmp = False
-                needPlot = True
-                if line.strip()[0] == "-":
-                    isFdb = False
-                else:
-                    if isFdb:
-                        tmp = line.strip().split()
-                        tmpNum = ""
-                        tmpPath = tmp[0].split(".")
-                        if is_nested_field_exists(tmpPath,zss.Robot_Status):
-                            for i in tmp:
-                                tmpNum = tmpNum+i
-                            fdbNeedPlotName.append(fdbPlotForward+tmpNum)
-                    else:
-                        tmp = line.strip().split()
-                        tmpNum = ""
-                        tmpPath = tmp[0].split(".")
-                        if is_nested_field_exists(tmpPath,zss.Robot_Command):
-                            for i in tmp:
-                                tmpNum = tmpNum+i
-                            refNeedPlotName.append(refPlotForward+tmpNum)
-                
-                
-    print(needPlot)
-      
-    plotDataNum = len(fdbNeedPlotName) + len(refNeedPlotName)  
-    
-    print(plotDataNum)
-    print(fdbNeedPlotName)
-    print(refNeedPlotName)
-    
+    # Legacy zcrazy.txt startup plot is disabled; use the Plot button for manual live plotting.
     global plotData
     global plotDataList
     global plotInitFinish
-    
-    plotData = [0]*plotDataNum
-    plotDataList = [[] for _ in range(plotDataNum)]
-    plotInitFinish = True
-                                
-    if needPlot and plotInitFinish:
-        
-        curve = []
-        
-        win = pg.GraphicsLayoutWidget(show=True)#建立窗口
-        win.setWindowTitle(u'zcrazy')
-        win.resize(800, 500)#小窗口大小
+    global plotDataNum
 
-        historyLength = 100#横坐标长度
-        p = win.addPlot()#把图p加入到窗口中
-        p.showGrid(x=True, y=True)#把X和Y的表格打开    
-        
-           
-        for index in range(plotDataNum):
-            curve.append(p.plot())
-        
-        
-        length=0
-        timer = pg.QtCore.QTimer()
-        timer.timeout.connect(plotCallback)#定时调用plotCallback函数
-    
-    
+    needPlot = False
+    plotDataNum = 0
+    plotData = []
+    plotDataList = []
+    plotInitFinish = False
     # 创建 InfoViewer 实例
     # 连接退出信号
     engine.quit.connect(app.quit)

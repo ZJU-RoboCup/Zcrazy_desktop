@@ -1,10 +1,13 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import ZSS as ZSS
 ApplicationWindow {
     visible: true
-    width: 1550
-    height: 760
+    width: Math.min(1550, Screen.desktopAvailableWidth - 40)
+    height: Math.min(760, Screen.desktopAvailableHeight - 80)
+    x: Math.max(0, (Screen.desktopAvailableWidth - width) / 2)
+    y: Math.max(0, (Screen.desktopAvailableHeight - height) / 2)
     title: "Zrazy"
     Timer{
         id:timer;
