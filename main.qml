@@ -4,11 +4,15 @@ import QtQuick.Window
 import ZSS as ZSS
 ApplicationWindow {
     visible: true
-    width: Math.min(1550, Screen.desktopAvailableWidth - 40)
-    height: Math.min(760, Screen.desktopAvailableHeight - 80)
-    x: Math.max(0, (Screen.desktopAvailableWidth - width) / 2)
-    y: Math.max(0, (Screen.desktopAvailableHeight - height) / 2)
+    width: 1280
+    height: 720
+    minimumWidth: 980
+    minimumHeight: 560
     title: "Zrazy"
+    Component.onCompleted: {
+        width = Math.max(minimumWidth, Math.min(1550, Screen.desktopAvailableWidth - 40))
+        height = Math.max(minimumHeight, Math.min(760, Screen.desktopAvailableHeight - 80))
+    }
     Timer{
         id:timer;
         interval:8;
