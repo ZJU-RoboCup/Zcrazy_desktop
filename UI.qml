@@ -1426,15 +1426,70 @@ Rectangle{
         id: colorImage
         z: 1000
         anchors.left: parent.left
-        anchors.bottom: parent.bottom
+        anchors.bottom: idConflictPanel.top
         anchors.leftMargin: 12
-        anchors.bottomMargin: 12
+        anchors.bottomMargin: 8
         width: 220
         height: 220
         fillMode: Image.PreserveAspectFit
         source: Qt.resolvedUrl("color.jpg")
         cache: true
         visible: true
+    }
+
+    Rectangle {
+        id: idConflictPanel
+        z: 1001
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 12
+        anchors.bottomMargin: 12
+        width: Math.max(210, Math.min(520, parent.width - onlineCountBadge.width - 44))
+        height: 70
+        radius: 6
+        color: cmdSender && cmdSender.idConflictCount > 0 ? "#fff0f0" : "#f3f5f7"
+        border.color: cmdSender && cmdSender.idConflictCount > 0 ? "#d32f2f" : "#a8b0b8"
+        border.width: 1
+
+        Row {
+            anchors.fill: parent
+            anchors.margins: 8
+            spacing: 8
+
+            Column {
+                width: parent.width - recoveryButton.width - parent.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 3
+
+                Text {
+                    width: parent.width
+                    text: "ID Conflict (" + (cmdSender ? cmdSender.idConflictCount : 0) + ")"
+                    color: cmdSender && cmdSender.idConflictCount > 0 ? "#b71c1c" : "#37474f"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+
+                Text {
+                    width: parent.width
+                    text: cmdSender ? cmdSender.idConflictSummary : "None"
+                    color: "#263238"
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    maximumLineCount: 2
+                    wrapMode: Text.Wrap
+                }
+            }
+
+            Button {
+                id: recoveryButton
+                width: 84
+                height: 34
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Recovery")
+                enabled: cmdSender && cmdSender.idConflictCount > 0
+                onClicked: cmdSender.recoverIdConflicts()
+            }
+        }
     }
 
     Rectangle {

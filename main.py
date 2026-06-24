@@ -114,12 +114,14 @@ class InfoReceiver:
     selected = {}
     def __init__(self,info_cb = None):
         self.info = {}
+        self.last_seen_ms = {}
         self.info_cb = info_cb
     def _cb(self,data,addr):
         pb_info = zss.Multicast_Status()
         pb_info.ParseFromString(data)
         pb_info.ip = int(addr.split(".")[3])
-        self.info[addr] = pb_info  
+        self.info[addr] = pb_info
+        self.last_seen_ms[addr] = int(datetime.now().timestamp() * 1000)
         if self.info_cb is not None:
             self.info_cb(pb_info.robot_id,pb_info)
                      
@@ -412,6 +414,7 @@ class InfoViewer(QQuickPaintedItem):
     statusSingnal=pyqtSignal(zss.Robot_Status)
     refresh=pyqtSignal(int)
     onlineCountsChanged = pyqtSignal()
+    idConflictsChanged = pyqtSignal()
     flag1=0
     flag2=0
     update_control=0
@@ -434,6 +437,8 @@ class InfoViewer(QQuickPaintedItem):
         self._avg_delay_ms = 0  # smoothed (sliding-window) average
         self._delay_samples = deque()  # (ts_ms, instant_avg_delay_ms)
         self._high_delay_text = "无"
+        self._id_conflict_count = 0
+        self._id_conflict_summary = "None"
         self._latest_status = None
         self._live_plot_fields = []
         self._live_plot_data = {}
@@ -467,6 +472,49 @@ class InfoViewer(QQuickPaintedItem):
         self.statusSingnal.connect(self.paint_single_info)
         self.refresh.connect(self.paintRefresh)
         self.initFinish = True
+
+    def _active_robot_entries(self, now_ms=None):
+        if now_ms is None:
+            now_ms = int(datetime.now().timestamp() * 1000)
+        entries = []
+        for addr, info in self.infoReceiver.info.items():
+            last_seen = int(self.infoReceiver.last_seen_ms.get(addr, 0))
+            if last_seen <= 0 or now_ms - last_seen > ONLINE_REMOVE_AFTER_MS:
+                continue
+            team = int(info.team)
+            robot_id = int(info.robot_id)
+            if team not in (1, 2) or not 0 <= robot_id < self.MAX_PLAYER:
+                continue
+            entries.append((addr, info, last_seen))
+        return entries
+
+    def _recalc_id_conflicts(self, now_ms=None):
+        groups = {}
+        for addr, info, _ in self._active_robot_entries(now_ms):
+            key = (int(info.team), int(info.robot_id))
+            groups.setdefault(key, []).append((addr, info))
+
+        conflicts = {
+            key: sorted(items, key=lambda item: int(item[1].ip))
+            for key, items in groups.items()
+            if len(items) > 1
+        }
+        parts = []
+        for (team, robot_id), items in sorted(conflicts.items()):
+            team_name = "Blue" if team == 1 else "Yellow"
+            ips = "/".join(f"{ipForward}.{int(info.ip)}" for _, info in items)
+            parts.append(f"{team_name} #{robot_id}: {ips}")
+
+        conflict_count = sum(len(items) - 1 for items in conflicts.values())
+        conflict_summary = " | ".join(parts) if parts else "None"
+        if (
+            conflict_count != self._id_conflict_count
+            or conflict_summary != self._id_conflict_summary
+        ):
+            self._id_conflict_count = conflict_count
+            self._id_conflict_summary = conflict_summary
+            self.idConflictsChanged.emit()
+        return conflicts
 
     def _recalc_online_stats(self):
         now_ms = int(datetime.now().timestamp() * 1000)
@@ -533,6 +581,7 @@ class InfoViewer(QQuickPaintedItem):
             self._avg_delay_ms = avg_delay_ms
             self._high_delay_text = high_delay_text
             self.onlineCountsChanged.emit()
+        self._recalc_id_conflicts(now_ms)
 
     @pyqtProperty(int, notify=onlineCountsChanged)
     def onlineBlueCount(self):
@@ -549,6 +598,14 @@ class InfoViewer(QQuickPaintedItem):
     @pyqtProperty(str, notify=onlineCountsChanged)
     def highDelayRobot(self):
         return str(self._high_delay_text)
+
+    @pyqtProperty(int, notify=idConflictsChanged)
+    def idConflictCount(self):
+        return int(self._id_conflict_count)
+
+    @pyqtProperty(str, notify=idConflictsChanged)
+    def idConflictSummary(self):
+        return str(self._id_conflict_summary)
                 
     def parse_and_paint_signal(self, data, ip_str):
         if self.ready and self.painter.isActive():
@@ -1320,6 +1377,67 @@ class InfoViewer(QQuickPaintedItem):
             'deadline_ms': now_ms + 4000,
         }
         self.cmdSender.changeId(id_new)
+
+    def _send_direct_id_change(self, info, id_new):
+        pb = zss.Robot_Command()
+        pb.robot_id = int(info.robot_id)
+        pb.need_change_team = False
+        pb.need_change_id = True
+        pb.id_new = int(id_new)
+        pb.isdebug = True
+        if hasattr(pb, "vision_source"):
+            pb.vision_source = 2
+        data = pb.SerializeToString()
+        target_ip = ipForward + "." + format(int(info.ip))
+        for _ in range(20):
+            self.cmdSender.udpSender.send(data, target_ip, SEND_PORT)
+
+    @pyqtSlot(result=bool)
+    def recoverIdConflicts(self):
+        now_ms = int(datetime.now().timestamp() * 1000)
+        conflicts = self._recalc_id_conflicts(now_ms)
+        if not conflicts:
+            print("[INFO] recoverIdConflicts: no conflicts.")
+            return False
+
+        used_ids = {1: set(), 2: set()}
+        for _, info, _ in self._active_robot_entries(now_ms):
+            used_ids[int(info.team)].add(int(info.robot_id))
+
+        recoveries = []
+        for (team, old_id), items in sorted(conflicts.items()):
+            # Keep the lowest-IP robot on the original ID and move the others.
+            for _, info in items[1:]:
+                new_id = next(
+                    (
+                        candidate
+                        for candidate in range(self.MAX_PLAYER)
+                        if candidate not in used_ids[team]
+                    ),
+                    None,
+                )
+                if new_id is None:
+                    print(f"[WARN] recoverIdConflicts: no free ID in team={team}.")
+                    continue
+                used_ids[team].add(new_id)
+                recoveries.append((info, old_id, new_id))
+
+        if not recoveries:
+            return False
+
+        success_count = 0
+        for info, old_id, new_id in recoveries:
+            try:
+                self._send_direct_id_change(info, new_id)
+                success_count += 1
+                print(
+                    f"[INFO] recovered ID conflict: ip={ipForward}.{int(info.ip)}, "
+                    f"team={int(info.team)}, id={old_id}->{new_id}."
+                )
+            except Exception as e:
+                print(f"[ERROR] recoverIdConflicts send failed: {e}")
+
+        return success_count > 0
 
     @pyqtSlot()
     
