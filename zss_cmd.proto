@@ -138,6 +138,10 @@ message Robot_Command {
     optional sint32 chassis_vel_pid_kp_y = 38;
     optional sint32 chassis_vel_pid_ki_y = 39;
     optional sint32 chassis_vel_pid_kd_y = 40;
+    // Runtime yaw angle PID gains, gain * 1000
+    optional sint32 yaw_angle_pid_kp = 41;
+    optional sint32 yaw_angle_pid_ki = 42;
+    optional sint32 yaw_angle_pid_kd = 43;
 }
 
 message Robots_Command_Sim {

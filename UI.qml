@@ -66,6 +66,9 @@ Rectangle{
             property double paramPidKpY : 30.0;
             property double paramPidKiY : 300.0;
             property double paramPidKdY : 0.0;
+            property double paramYawPidKp : 15.0;
+            property double paramYawPidKi : 2.0;
+            property double paramYawPidKd : 0.0;
             property int rushSpeed : 200;//RushSpeed
 
             property int power : 20;//KickPower
@@ -640,12 +643,13 @@ Rectangle{
         modal: false
         focus: false
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        x: Math.max(20, (radioRectangle.width - width) / 2)
-        y: 56
-        width: Math.min(radioRectangle.width - 40, 900)
-        height: Math.min(radioRectangle.height - 70, 640)
+        x: Math.max(12, (radioRectangle.width - width) / 2)
+        y: 16
+        width: Math.max(360, Math.min(radioRectangle.width - 24, 980))
+        height: Math.max(360, radioRectangle.height - 32)
         padding: 0
         property string applyStatusValue: ""
+        property bool wideLayout: width >= 700
 
         function formatParam(value, digits) {
             var numberValue = Number(value);
@@ -690,6 +694,15 @@ Rectangle{
             applyStatusValue = "Applied";
         }
 
+        function applyYawAnglePid() {
+            radioRectangle.cmdSender.updateYawAnglePid(
+                crazyShow.paramYawPidKp,
+                crazyShow.paramYawPidKi,
+                crazyShow.paramYawPidKd
+            );
+            applyStatusValue = "Applied";
+        }
+
         function refreshParameterFeedback() {
             var params = {};
             try {
@@ -712,6 +725,9 @@ Rectangle{
             paramPidKpY.text = formatParam(params.pid_kp_y, 2);
             paramPidKiY.text = formatParam(params.pid_ki_y, 2);
             paramPidKdY.text = formatParam(params.pid_kd_y, 2);
+            paramYawPidKp.text = formatParam(params.yaw_pid_kp, 3);
+            paramYawPidKi.text = formatParam(params.yaw_pid_ki, 3);
+            paramYawPidKd.text = formatParam(params.yaw_pid_kd, 3);
         }
 
         onOpened: refreshParameterFeedback()
@@ -732,12 +748,14 @@ Rectangle{
         contentItem: Rectangle {
             color: "transparent"
             ScrollView {
+                id: parameterScroll
                 anchors.fill: parent
                 clip: true
-                contentWidth: parameterPopup.width
+                contentWidth: availableWidth
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                 Item {
-                    width: parameterPopup.width
+                    width: parameterScroll.availableWidth
                     height: parameterColumn.height + 28
 
             Column {
@@ -760,23 +778,23 @@ Rectangle{
                     rowSpacing: 8
                     width: parent.width
 
-                    Text { text: qsTr("DribVel (turn/s)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: 230 }
+                    Text { text: qsTr("DribVel (turn/s)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: parameterPopup.wideLayout ? 230 : 170 }
                     SpinBox {
                         editable: true
                         from: -crazyShow.dribbleVelocityMax
                         to: crazyShow.dribbleVelocityMax
                         value: crazyShow.dribbleVelocity
-                        width: 180
+                        width: parameterPopup.wideLayout ? 180 : 110
                         onValueModified: { crazyShow.dribbleVelocity = value; }
                     }
 
-                    Text { text: qsTr("DribTorque (mNm)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: 230 }
+                    Text { text: qsTr("DribTorque (mNm)"); font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; height: 34; width: parameterPopup.wideLayout ? 230 : 170 }
                     SpinBox {
                         editable: true
                         from: -crazyShow.dribbleTorqueMilliMax
                         to: crazyShow.dribbleTorqueMilliMax
                         value: crazyShow.dribbleTorqueMilli
-                        width: 180
+                        width: parameterPopup.wideLayout ? 180 : 110
                         onValueModified: { crazyShow.dribbleTorqueMilli = value; }
                     }
                 }
@@ -786,7 +804,7 @@ Rectangle{
                 Text { text: qsTr("Motion Limit Command"); font.pixelSize: 16; font.bold: true; width: parent.width }
 
                 Grid {
-                    columns: 4
+                    columns: parameterPopup.wideLayout ? 4 : 2
                     columnSpacing: 12
                     rowSpacing: 8
                     width: parent.width
@@ -872,7 +890,7 @@ Rectangle{
                 Text { text: qsTr("Chassis Velocity PID Command"); font.pixelSize: 16; font.bold: true; width: parent.width }
 
                 Grid {
-                    columns: 4
+                    columns: parameterPopup.wideLayout ? 4 : 2
                     columnSpacing: 12
                     rowSpacing: 8
                     width: parent.width
@@ -929,10 +947,44 @@ Rectangle{
 
                 Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
 
+                Text { text: qsTr("Yaw Angle PID Command"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: parameterPopup.wideLayout ? 4 : 2
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Yaw Kp"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramYawPidKp * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawPidKp = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Yaw Ki"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramYawPidKi * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawPidKi = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Text { text: qsTr("Yaw Kd"); font.pixelSize: 15; width: 170; height: 34; verticalAlignment: Text.AlignVCenter }
+                    SpinBox {
+                        editable: true; from: 0; to: 32767; value: Math.round(crazyShow.paramYawPidKd * 1000); width: 110
+                        textFromValue: function(value, locale) { return parameterPopup.scaledText(value, 1000, 3, locale); }
+                        valueFromText: function(text, locale) { return parameterPopup.scaledValue(text, 1000, locale); }
+                        onValueModified: { crazyShow.paramYawPidKd = value / 1000.0; parameterPopup.applyStatusValue = ""; }
+                    }
+                    Button { text: qsTr("Apply Yaw PID"); width: 140; onClicked: parameterPopup.applyYawAnglePid() }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
                 Text { text: qsTr("Motion Limit Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
 
                 Grid {
-                    columns: 4
+                    columns: parameterPopup.wideLayout ? 4 : 2
                     columnSpacing: 12
                     rowSpacing: 8
                     width: parent.width
@@ -968,7 +1020,7 @@ Rectangle{
                 Text { text: qsTr("Chassis Velocity PID Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
 
                 Grid {
-                    columns: 4
+                    columns: parameterPopup.wideLayout ? 4 : 2
                     columnSpacing: 12
                     rowSpacing: 8
                     width: parent.width
@@ -987,6 +1039,24 @@ Rectangle{
                     Text { id: paramPidKdX; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
                     Text { text: qsTr("Vy Kd"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
                     Text { id: paramPidKdY; text: "0.00"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#c9c9c9" }
+
+                Text { text: qsTr("Yaw Angle PID Feedback"); font.pixelSize: 16; font.bold: true; width: parent.width }
+
+                Grid {
+                    columns: parameterPopup.wideLayout ? 4 : 2
+                    columnSpacing: 12
+                    rowSpacing: 8
+                    width: parent.width
+
+                    Text { text: qsTr("Yaw Kp"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawPidKp; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Yaw Ki"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawPidKi; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { text: qsTr("Yaw Kd"); font.pixelSize: 15; width: 170; height: 28; verticalAlignment: Text.AlignVCenter }
+                    Text { id: paramYawPidKd; text: "0.000"; font.pixelSize: 15; font.bold: true; width: 110; height: 28; verticalAlignment: Text.AlignVCenter }
                 }
             }
                 }

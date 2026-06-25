@@ -139,6 +139,7 @@ class CmdSender:
         self.pb_data.dribble_mode = 3
         self.setParameterLimits(7.0, 7.0, 1000.0, 1000.0, 10.0, 10.0, 25.0, 40.0, 200.0)
         self.setChassisVelocityPid(30.0, 300.0, 0.0, 30.0, 300.0, 0.0)
+        self.setYawAnglePid(15.0, 2.0, 0.0)
         self.pb_data.vision_source = 2
         self.pb_data.cmd_type = zss.Robot_Command.CmdType.CMD_VEL
         self.pb_data.cmd_vel.velocity_x = int(0*1000)
@@ -147,9 +148,9 @@ class CmdSender:
         self.pb_data.cmd_vel.use_imu = False
         self.pb_data.cmd_vel.imu_theta = int(0*3.1415926/180.0*1000)
         self.pb_data.comm_type = zss.Robot_Command.CommType.UDP_WIFI
-        self.pb_data.angle_pid.append(int(6.5*1000))
-        self.pb_data.angle_pid.append(int(0*1000))
-        self.pb_data.angle_pid.append(int(0.8*1000))
+        self.pb_data.angle_pid.append(int(6.5 * 1000.0))
+        self.pb_data.angle_pid.append(0)
+        self.pb_data.angle_pid.append(int(0.5 * 1000.0))
         self.pb_data.need_change_team = False
         self.pb_data.need_change_id = False
         self.pb_data.team_new = zss.Team.UNKNOWN
@@ -180,6 +181,11 @@ class CmdSender:
         self.pb_data.chassis_vel_pid_kp_y = int(round(kp_y * 100.0))
         self.pb_data.chassis_vel_pid_ki_y = int(round(ki_y * 100.0))
         self.pb_data.chassis_vel_pid_kd_y = int(round(kd_y * 100.0))
+
+    def setYawAnglePid(self, kp, ki, kd):
+        self.pb_data.yaw_angle_pid_kp = int(round(kp * 1000.0))
+        self.pb_data.yaw_angle_pid_ki = int(round(ki * 1000.0))
+        self.pb_data.yaw_angle_pid_kd = int(round(kd * 1000.0))
 
     def _apply_velocity(self, vx_mm_s: float, vy_mm_s: float, vr_rad_s: float):
         self.pb_data.cmd_vel.use_imu = False
@@ -340,10 +346,6 @@ class CmdSender:
         self.pb_data.cmd_vel.use_imu = use_imu
         # self.pb_data.cmd_vel.imu_theta = angle*3.1415926/180.0
         self.pb_data.comm_type = zss.Robot_Command.CommType.UDP_WIFI
-        self.pb_data.angle_pid.clear()
-        self.pb_data.angle_pid.append(int(6.5*1000.0))
-        self.pb_data.angle_pid.append(int(0*1000.0))
-        self.pb_data.angle_pid.append(int(0.5*1000.0))
         self.pb_data.wheel_pid.clear()
         self.pb_data.wheel_pid.append(int(0.1*1000.0))
         self.pb_data.wheel_pid.append(int(0.6*1000.0))
@@ -1092,6 +1094,9 @@ class InfoViewer(QQuickPaintedItem):
             "pid_kp_y": pose_value(5, "x"),
             "pid_ki_y": pose_value(5, "y"),
             "pid_kd_y": pose_value(5, "w"),
+            "yaw_pid_kp": pose_value(6, "x"),
+            "yaw_pid_ki": pose_value(6, "y"),
+            "yaw_pid_kd": pose_value(6, "w"),
         }
         return json.dumps(data)
 
@@ -1102,6 +1107,10 @@ class InfoViewer(QQuickPaintedItem):
     @pyqtSlot(float, float, float, float, float, float)
     def updateChassisVelocityPid(self, kp_x, ki_x, kd_x, kp_y, ki_y, kd_y):
         self.cmdSender.setChassisVelocityPid(kp_x, ki_x, kd_x, kp_y, ki_y, kd_y)
+
+    @pyqtSlot(float, float, float)
+    def updateYawAnglePid(self, kp, ki, kd):
+        self.cmdSender.setYawAnglePid(kp, ki, kd)
 
     @pyqtSlot(zss.Robot_Status)
     def paint_single_info(self,info):
